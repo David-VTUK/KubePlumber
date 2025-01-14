@@ -1,16 +1,16 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
+	"log"
 	"path/filepath"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
-)
-
-const (
-	defaultKubeconfig = "~/.kube/config"
 )
 
 func main() {
@@ -35,4 +35,22 @@ func main() {
 		panic(err.Error())
 	}
 
+	// Get list of Nodes
+	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		panic(err.Error())
+	}
+
+	log.Default().Println("Assessing Cluster Node Topology")
+
+	for _, node := range nodes.Items {
+
+		if node.GetLabels()["node-role.kubernetes.io/master"] == "true" || node.GetLabels()["node-role.kubernetes.io/control-plane"] == "true" {
+			fmt.Println("Node: ", node.GetName(), " is a control plane Node")
+		} else {
+
+			fmt.Println("Node: ", node.GetName(), " is a worker Node")
+		}
+
+	}
 }
