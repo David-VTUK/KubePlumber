@@ -2,11 +2,11 @@ package main
 
 import (
 	"flag"
-	"os"
-	"path"
-	"strings"
+	"path/filepath"
 
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
 )
 
 const (
@@ -15,64 +15,24 @@ const (
 
 func main() {
 
-	// Get the kubeconfig file path
-	kubeconfig, err := getConfig()
-	if err != nil {
-		panic(err)
+	var kubeconfig *string
+	if home := homedir.HomeDir(); home != "" {
+		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+	} else {
+		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
-
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-
-}
-
-func getConfig() (string, error) {
-	var filename string
-	var err error
-
-	// Check KUBECONFIG environment variable
-	envKubeConfig := os.Getenv("KUBECONFIG")
-	if envKubeConfig != "" {
-		filename, err = homeDir(envKubeConfig)
-		if err != nil {
-			return "", err
-		}
-		if _, err = os.Stat(filename); err != nil {
-			return "", err
-		}
-		return filename, nil
-	}
-
-	// Setup and parse the kubeconfig command-line flag
-	flag.StringVar(&filename, "kubeconfig", "", "path to the kubeconfig file")
 	flag.Parse()
 
-	// Use default kubeconfig if no flag is set
-	if filename == "" {
-		filename = defaultKubeconfig
-	}
-
-	// Resolve home directory in path
-	filename, err = homeDir(filename)
+	// use the current context in kubeconfig
+	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
 	if err != nil {
-		return "", err
+		panic(err.Error())
 	}
 
-	// Check if the resolved file path exists
-	if _, err = os.Stat(filename); err != nil {
-		return "", err
+	// create the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
 	}
 
-	return filename, nil
-}
-
-func homeDir(filename string) (string, error) {
-	if strings.Contains(filename, "~/") {
-		homedir, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		filename = strings.Replace(filename, "~/", "", 1)
-		filename = path.Join(homedir, filename)
-	}
-	return filename, nil
 }
