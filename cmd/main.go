@@ -4,10 +4,10 @@ import (
 	"flag"
 	"path/filepath"
 
+	"github.com/David-VTUK/KubePlumber/internal/validate"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
-	"github.com/david-vtuk/kube-plumber/internal/validate"
 )
 
 func main() {
@@ -32,9 +32,8 @@ func main() {
 		panic(err.Error())
 	}
 
-	err = validate.GetDNSConfigMap(clientset)
+	err = validate.RunDNSTests(clientset)
 	if err != nil {
 		panic(err.Error())
 	}
-
 }

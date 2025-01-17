@@ -1,6 +1,6 @@
-# KubePlumber
+![img](./images/logo.png)
 
-KubePlumber is a Kubernetes networking utility that validates/test network connectivity in a Kubernetes cluster, including:
+`KubePlumber` is a Kubernetes networking utility that validates/test network connectivity in a Kubernetes cluster, including:
 
 * Internal DNS Resolution (Inter + Intra node)
 * Internal traffic testing (Inter and Intra node)
