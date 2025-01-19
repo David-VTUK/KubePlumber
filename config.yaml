@@ -1,0 +1,7 @@
+internal_dns:
+  - name: "kubernetes.default.svc.cluster.local"
+
+external_dns:
+  - name: "google.com"
+  - name: "bbc.co.uk"
+  - name: "invaliddomain.xoi.tv"
