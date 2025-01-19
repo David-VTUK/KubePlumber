@@ -7,3 +7,6 @@
 * External DNS resolution
 * MTU Validation between nodes
 * Host NIC configuration
+
+![img](./images/example1.png)
+![img](./images/example2.png)
