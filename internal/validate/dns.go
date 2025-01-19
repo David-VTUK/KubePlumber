@@ -75,11 +75,11 @@ func checkDNSConfigMap(clientset *kubernetes.Clientset, clusterDNSNamespace, clu
 	}
 
 	if len(serviceList.Items) == 0 {
-		return "", err
+		return "", errors.New("no DNS Service found with the provided clusterIP")
 	}
 
 	if len(serviceList.Items) > 1 {
-		return "", err
+		return "", errors.New("multiple DNS Services found with the provided clusterIP")
 	}
 
 	dnsService := serviceList.Items[0]
@@ -108,7 +108,7 @@ func checkDNSConfigMap(clientset *kubernetes.Clientset, clusterDNSNamespace, clu
 	}
 
 	if len(podList.Items) == 0 {
-		return "", err
+		return "", errors.New("no DNS Pods found with the provided label selector")
 	}
 
 	return dnsLabelSelector, nil
