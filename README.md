@@ -10,3 +10,14 @@
 
 ![img](./images/example1.png)
 ![img](./images/example2.png)
+
+
+## Example Usage
+
+For an OpenShift cluster:
+
+`go run ./cmd/main.go -kubeconfig ~/.kube/config -dnsConfigMapName default -dnsConfigNamespace openshift-dns -isOpenShift true`
+
+For a k3s/generic cluster
+
+`go run ./cmd/main.go -kubeconfig ~/.kube/config`

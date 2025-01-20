@@ -5,14 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/David-VTUK/KubePlumber/common"
 	"github.com/jedib0t/go-pretty/v6/table"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -20,30 +23,32 @@ const (
 	testDNSNamespace = "default"
 )
 
-func RunDNSTests(clientset *kubernetes.Clientset, clusterDNSConfigMapName, clusterDNSNamespace, configFile *string) error {
+func RunDNSTests(clients common.Clients, config common.Config) error {
 
 	var err error
 
 	// Check the existence of the DNS config map and extract the service endpoint IP and domain
-	dnsLabelSelector, err := checkDNSConfigMap(clientset, *clusterDNSNamespace, *clusterDNSConfigMapName)
+	dnsLabelSelector, err := checkDNSConfigMap(clients, config.DNSConfigNamespace, config.DNSConfigMapName, config.IsOpenShift)
 	if err != nil {
 		return err
 	}
 
+	log.Info("DNS Label Selector: ", dnsLabelSelector)
+
 	// Check the corresponding service endpoints for running DNS pods
-	err = checkDNSPods(clientset, *clusterDNSNamespace, dnsLabelSelector)
+	err = checkDNSPods(clients.KubeClient, config.DNSConfigNamespace, dnsLabelSelector)
 	if err != nil {
 		return err
 	}
 
 	// Check the corresponding Pods are correctly resolving internal DNS requests
-	err = checkInternalDNSResolution(clientset, *clusterDNSNamespace, dnsLabelSelector, *configFile)
+	err = checkInternalDNSResolution(clients.KubeClient, config.DNSConfigNamespace, dnsLabelSelector, config.ConfigFile)
 	if err != nil {
 		return err
 	}
 
 	// Check the corresponding Pods are correctly resolving external DNS requests
-	err = checkExternalDNSResolution(clientset, *clusterDNSNamespace, dnsLabelSelector, *configFile)
+	err = checkExternalDNSResolution(clients.KubeClient, config.DNSConfigNamespace, dnsLabelSelector, config.ConfigFile)
 	if err != nil {
 		return err
 	}
@@ -51,40 +56,69 @@ func RunDNSTests(clientset *kubernetes.Clientset, clusterDNSConfigMapName, clust
 	return err
 }
 
-func checkDNSConfigMap(clientset *kubernetes.Clientset, clusterDNSNamespace, clusterDNSConfigMapName string) (string, error) {
+func checkDNSConfigMap(clients common.Clients, clusterDNSNamespace, clusterDNSConfigMapName string, isOpenShift bool) (string, error) {
 
-	log.Info("Getting cluster-dns ConfigMap")
+	var clusterDNSDomain, clusterDNSEndpoint string
+	var dnsService corev1.Service
 
-	config, err := clientset.CoreV1().ConfigMaps(clusterDNSNamespace).Get(context.TODO(), clusterDNSConfigMapName, metav1.GetOptions{})
+	log.Info("Getting Cluster DNS Configuration")
+
+	if isOpenShift {
+
+		log.Info("Cluster is OpenShift")
+
+		config, err := clients.DynamicClient.Resource(common.OpenShiftDNSGVR).Get(context.TODO(), clusterDNSConfigMapName, metav1.GetOptions{})
+		if err != nil {
+			return "", err
+		}
+
+		// Extract the status.clusterDomain field
+		status, found, err := unstructured.NestedMap(config.Object, "status")
+		if !found || err != nil {
+			return "", fmt.Errorf("status not found in dnses object")
+		}
+
+		clusterDNSDomain, found, err = unstructured.NestedString(status, "clusterDomain")
+		if !found || err != nil {
+			return "", fmt.Errorf("clusterDomain not found in status")
+		}
+
+		clusterDNSEndpoint, found, err = unstructured.NestedString(status, "clusterIP")
+		if !found || err != nil {
+			return "", fmt.Errorf("clusterIP not found in status")
+		}
+
+		log.Info("Cluster DNS Domain: ", clusterDNSDomain)
+		log.Info("Cluster DNS Endpoint: ", clusterDNSEndpoint)
+
+	} else {
+
+		config, err := clients.KubeClient.CoreV1().ConfigMaps(clusterDNSNamespace).Get(context.TODO(), clusterDNSConfigMapName, metav1.GetOptions{})
+		if err != nil {
+			return "", err
+		}
+
+		clusterDNSDomain = config.Data["clusterDomain"]
+		clusterDNSEndpoint = config.Data["clusterDNS"]
+
+		log.Info("Cluster DNS Domain: ", clusterDNSDomain)
+		log.Info("Cluster DNS Endpoint: ", clusterDNSEndpoint)
+	}
+
+	serviceList, err := clients.KubeClient.CoreV1().Services(clusterDNSNamespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return "", err
+		return "", errors.New("unable to list services")
 	}
 
-	clusterDNSDomain := config.Data["clusterDomain"]
-	clusterDNSEndpoint := config.Data["clusterDNS"]
+	for _, service := range serviceList.Items {
+		if service.Spec.ClusterIP == clusterDNSEndpoint {
+			log.Info("DNS Service found: ", service.Name)
+			dnsService = service
 
-	log.Debugf("Cluster DNS Domain: %s", clusterDNSDomain)
-	log.Debugf("Cluster DNS Endpoint: %s", clusterDNSEndpoint)
-
-	serviceList, err := clientset.CoreV1().Services(clusterDNSNamespace).List(context.TODO(), metav1.ListOptions{
-		FieldSelector: "spec.clusterIP=" + clusterDNSEndpoint,
-	})
-
-	if err != nil {
-		return "", err
+		}
 	}
 
-	if len(serviceList.Items) == 0 {
-		return "", errors.New("no DNS Service found with the provided clusterIP")
-	}
-
-	if len(serviceList.Items) > 1 {
-		return "", errors.New("multiple DNS Services found with the provided clusterIP")
-	}
-
-	dnsService := serviceList.Items[0]
-
-	endpoints, err := clientset.CoreV1().Endpoints(dnsService.Namespace).Get(context.TODO(), dnsService.Name, metav1.GetOptions{})
+	endpoints, err := clients.KubeClient.CoreV1().Endpoints(dnsService.Namespace).Get(context.TODO(), dnsService.Name, metav1.GetOptions{})
 	if err != nil {
 		return "", err
 	}
@@ -99,7 +133,7 @@ func checkDNSConfigMap(clientset *kubernetes.Clientset, clusterDNSNamespace, clu
 
 	log.Debugf("Identifying DNS Pods by Service information")
 
-	podList, err := clientset.CoreV1().Pods(dnsService.Namespace).List(context.TODO(), metav1.ListOptions{
+	podList, err := clients.KubeClient.CoreV1().Pods(dnsService.Namespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: dnsLabelSelector,
 	})
 
@@ -141,7 +175,7 @@ func checkDNSPods(clientset *kubernetes.Clientset, clusterDNSNamespace, dnsLabel
 
 func checkInternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSNamespace, dnsLabelSelector, configFile string) error {
 
-	var dnsConfig DNSConfig
+	var dnsConfig common.DNSConfig
 	var intraOrInter string
 
 	t := table.NewWriter()
@@ -158,8 +192,6 @@ func checkInternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSNames
 		fmt.Println(err)
 		return err
 	}
-
-	fmt.Println(dnsConfig.InternalDNS)
 
 	dnsPods, err := clientset.CoreV1().Pods(clusterDNSNamespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: dnsLabelSelector,
@@ -191,7 +223,7 @@ func checkInternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSNames
 								Command: []string{
 									"nslookup",
 									internalDNS.Name,
-									dnsPod.Status.PodIP,
+									fmt.Sprintf("%s:%s", dnsPod.Status.PodIP, strconv.Itoa(int(dnsPod.Spec.Containers[0].Ports[0].ContainerPort))),
 								},
 							},
 						},
@@ -258,7 +290,7 @@ func checkInternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSNames
 
 func checkExternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSNamespace, dnsLabelSelector, configFile string) error {
 
-	var dnsConfig DNSConfig
+	var dnsConfig common.DNSConfig
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
@@ -292,7 +324,9 @@ func checkExternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSNames
 	for _, node := range nodes.Items {
 		for _, dnsPod := range dnsPods.Items {
 			for _, externalDNS := range dnsConfig.ExternalDNS {
+
 				pod, err := clientset.CoreV1().Pods(testDNSNamespace).Create(context.TODO(), &corev1.Pod{
+
 					ObjectMeta: metav1.ObjectMeta{
 						GenerateName: "dns-test-",
 						Namespace:    testDNSNamespace,
@@ -307,7 +341,7 @@ func checkExternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSNames
 								Command: []string{
 									"nslookup",
 									externalDNS.Name,
-									dnsPod.Status.PodIP,
+									fmt.Sprintf("%s:%s", dnsPod.Status.PodIP, strconv.Itoa(int(dnsPod.Spec.Containers[0].Ports[0].ContainerPort))),
 								},
 							},
 						},
