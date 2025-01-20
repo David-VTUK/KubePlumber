@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/David-VTUK/KubePlumber/common"
@@ -48,7 +49,7 @@ func RunDNSTests(clients common.Clients, config common.Config) error {
 	}
 
 	// Check the corresponding Pods are correctly resolving external DNS requests
-	err = checkExternalDNSResolution(clients.KubeClient, config.DNSConfigNamespace, dnsLabelSelector, config.ConfigFile)
+	//err = checkExternalDNSResolution(clients.KubeClient, config.DNSConfigNamespace, dnsLabelSelector, config.ConfigFile)
 	if err != nil {
 		return err
 	}
@@ -176,7 +177,6 @@ func checkDNSPods(clientset *kubernetes.Clientset, clusterDNSNamespace, dnsLabel
 func checkInternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSNamespace, dnsLabelSelector, configFile string) error {
 
 	var dnsConfig common.DNSConfig
-	var intraOrInter string
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
@@ -205,86 +205,108 @@ func checkInternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSNames
 		return err
 	}
 
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 5)
+
 	for _, node := range nodes.Items {
 		for _, dnsPod := range dnsPods.Items {
 			for _, internalDNS := range dnsConfig.InternalDNS {
-				pod, err := clientset.CoreV1().Pods(testDNSNamespace).Create(context.TODO(), &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						GenerateName: "dns-test-",
-						Namespace:    testDNSNamespace,
-					},
-					Spec: corev1.PodSpec{
-						NodeName:      node.Name,
-						RestartPolicy: corev1.RestartPolicyNever,
-						Containers: []corev1.Container{
-							{
-								Name:  "dns-test",
-								Image: "busybox",
-								Command: []string{
-									"nslookup",
-									internalDNS.Name,
-									fmt.Sprintf("%s:%s", dnsPod.Status.PodIP, strconv.Itoa(int(dnsPod.Spec.Containers[0].Ports[0].ContainerPort))),
-								},
-							},
-						},
-					},
-				}, metav1.CreateOptions{})
 
-				if err != nil {
-					return err
-				}
+				wg.Add(1)
 
-				for {
-					time.Sleep(1 * time.Second)
-					pod, err = clientset.CoreV1().Pods(testDNSNamespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+				go func(node corev1.Node, dnsPod corev1.Pod, internalDNS common.DNSRecord) {
+					defer wg.Done()
+					sem <- struct{}{}        // acquire semaphore
+					defer func() { <-sem }() // release semaphore
 
-					if pod.Spec.NodeName == dnsPod.Spec.NodeName {
-						intraOrInter = "intra"
-					} else {
-						intraOrInter = "inter"
-					}
-
+					err := createTestDNSPods(node, dnsPod, clientset, internalDNS)
 					if err != nil {
-						return err
+						// handle error
+						// You might want to log the error or handle it in some way
+						return
 					}
-
-					if pod.Status.Phase == "Pending" {
-						log.Info("Pod is still pending")
-						continue
-					}
-
-					if pod.Status.Phase == "Succeeded" {
-						log.Info("Pod has succeeded")
-						err = clientset.CoreV1().Pods(testDNSNamespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{})
-						if err != nil {
-							return err
-						}
-						log.Info("Deleted Pod")
-
-						t.AppendRow(table.Row{node.Name, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, "Success", internalDNS.Name})
-						break
-					}
-
-					if pod.Status.Phase == "Failed" {
-						log.Info("Pod has failed")
-						err = clientset.CoreV1().Pods(testDNSNamespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{})
-						if err != nil {
-							return err
-						}
-						log.Info("Deleted Pod")
-						t.AppendRow(table.Row{node.Name, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, "Failed", internalDNS.Name})
-						break
-					}
-				}
-
+				}(node, dnsPod, internalDNS)
 			}
+
 		}
 	}
 
-	t.SetStyle(table.StyleColoredDark)
+	wg.Wait() // wait for all goroutines to finish
 
-	//render table
-	t.Render()
+	return nil
+}
+
+func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clientset *kubernetes.Clientset, internalDNS common.DNSRecord) error {
+
+	pod, err := clientset.CoreV1().Pods(testDNSNamespace).Create(context.TODO(), &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "dns-test-",
+			Namespace:    testDNSNamespace,
+		},
+		Spec: corev1.PodSpec{
+			NodeName:      node.Name,
+			RestartPolicy: corev1.RestartPolicyNever,
+			Containers: []corev1.Container{
+				{
+					Name:  "dns-test",
+					Image: "quay.io/quay/busybox",
+					Command: []string{
+						"nslookup",
+						internalDNS.Name,
+						fmt.Sprintf("%s:%s", dnsPod.Status.PodIP, strconv.Itoa(int(dnsPod.Spec.Containers[0].Ports[0].ContainerPort))),
+					},
+				},
+			},
+		},
+	}, metav1.CreateOptions{})
+
+	if err != nil {
+		return err
+	}
+
+	for {
+		time.Sleep(500 * time.Millisecond)
+		pod, err = clientset.CoreV1().Pods(testDNSNamespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+
+		/*
+			if pod.Spec.NodeName == dnsPod.Spec.NodeName {
+				intraOrInter = "intra"
+			} else {
+				intraOrInter = "inter"
+			}
+		*/
+
+		if err != nil {
+			return err
+		}
+
+		if pod.Status.Phase == "Pending" {
+			log.Info("Pod is still pending")
+			continue
+		}
+
+		if pod.Status.Phase == "Succeeded" {
+			log.Info("Pod has succeeded")
+			err = clientset.CoreV1().Pods(testDNSNamespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{})
+			if err != nil {
+				return err
+			}
+			log.Info("Deleted Pod")
+
+			break
+		}
+
+		if pod.Status.Phase == "Failed" {
+			log.Info("Pod has failed")
+			err = clientset.CoreV1().Pods(testDNSNamespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{})
+			if err != nil {
+				return err
+			}
+			log.Info("Deleted Pod")
+			break
+		}
+	}
+
 	return nil
 }
 
@@ -337,7 +359,7 @@ func checkExternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSNames
 						Containers: []corev1.Container{
 							{
 								Name:  "dns-test",
-								Image: "busybox",
+								Image: "quay.io/quay/busybox",
 								Command: []string{
 									"nslookup",
 									externalDNS.Name,
