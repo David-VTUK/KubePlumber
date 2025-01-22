@@ -291,10 +291,6 @@ func checkExternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSNames
 					return nil
 				}(node, dnsPod, externalDNS)
 
-				if err != nil {
-					return err
-				}
-
 			}
 		}
 	}
