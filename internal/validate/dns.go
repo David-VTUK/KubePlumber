@@ -12,6 +12,7 @@ import (
 
 	"github.com/David-VTUK/KubePlumber/common"
 	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/jedib0t/go-pretty/v6/text"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
@@ -362,7 +363,7 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clientset *kubernete
 
 		if pod.Status.Phase == "Failed" {
 			log.Info("Pod has failed")
-			t.AppendRow(table.Row{pod.Spec.NodeName, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, pod.Status.Phase, dnsRecords.Name}, table.RowConfig{AutoMerge: true})
+			t.AppendRow(table.Row{pod.Spec.NodeName, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, text.FgRed.Sprint(pod.Status.Phase), dnsRecords.Name})
 			err = clientset.CoreV1().Pods(testDNSNamespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{})
 			if err != nil {
 				return err
