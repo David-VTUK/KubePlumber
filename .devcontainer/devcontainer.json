@@ -10,7 +10,8 @@
 				"streetsidesoftware.code-spell-checker",
 				"redhat.vscode-yaml",
 				"GitHub.copilot",
-                "yzhang.markdown-all-in-one"
+                "yzhang.markdown-all-in-one",
+				"golang.go"
 			]
 		}
 	},
