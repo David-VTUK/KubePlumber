@@ -25,14 +25,19 @@ type DNSRecord struct {
 }
 
 // Config struct contains the configuration options for querying the Kubernetes cluster.
-type Config struct {
-	Kubeconfig         string
-	DNSConfigNamespace string
-	DNSConfigMapName   string
-	LogLevel           string
-	ConfigFile         string
-	IsOpenShift        bool
-	
+type RunConfig struct {
+	Kubeconfig string
+	LogLevel   string
+	ConfigFile string
+}
+
+type ClusterDNSConfig struct {
+	DNSServiceEndpointIP  string
+	DNSServiceServiceName string
+	DNSServiceDomain      string
+	DNSServiceNamespace   string
+	DNSConfigObjectName   string
+	DNSLabelSelector      string
 }
 
 var OpenShiftDNSGVR = schema.GroupVersionResource{
