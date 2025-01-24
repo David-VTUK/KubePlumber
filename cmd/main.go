@@ -5,8 +5,9 @@ import (
 	"os"
 
 	"github.com/David-VTUK/KubePlumber/common"
+	"github.com/David-VTUK/KubePlumber/internal/detect"
 	"github.com/David-VTUK/KubePlumber/internal/validate"
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -14,33 +15,33 @@ import (
 
 func main() {
 
-	config := common.Config{}
-	flag.StringVar(&config.DNSConfigNamespace, "dnsConfigNamespace", "kube-system", "Namespace of the DNS ConfigMap")
-	flag.StringVar(&config.DNSConfigMapName, "dnsConfigMapName", "cluster-dns", "Name of the DNS ConfigMap")
-	flag.StringVar(&config.LogLevel, "logLevel", "debug", "Log level (debug, info, warn, error, fatal, panic)")
-	flag.StringVar(&config.ConfigFile, "configFile", "config.yaml", "Path to the config file")
-	flag.StringVar(&config.Kubeconfig, "kubeconfig", "", "(required) absolute path to the kubeconfig file")
-	flag.BoolVar(&config.IsOpenShift, "isOpenShift", false, "Set to true if the cluster is OpenShift")
+	runConfig := common.RunConfig{}
+	flag.StringVar(&runConfig.LogLevel, "logLevel", "debug", "Log level (debug, info, warn, error, fatal, panic)")
+	flag.StringVar(&runConfig.ConfigFile, "configFile", "config.yaml", "Path to the config file")
+	flag.StringVar(&runConfig.Kubeconfig, "kubeconfig", "", "(required) absolute path to the kubeconfig file")
 
 	flag.Parse()
 
 	// Check if config file exists
-	_, err := os.Stat(config.ConfigFile)
+	_, err := os.Stat(runConfig.ConfigFile)
 	if os.IsNotExist(err) {
-		logrus.Fatalf("Config file %s does not exist", config.ConfigFile)
+		log.Fatalf("Config file %s does not exist", runConfig.ConfigFile)
 	}
 
-	level, err := logrus.ParseLevel(config.LogLevel)
+	level, err := log.ParseLevel(runConfig.LogLevel)
 	if err != nil {
-		logrus.Fatalf("Invalid log level: %v", err)
+		log.Fatalf("Invalid log level: %v", err)
 	}
-	logrus.SetLevel(level)
+	log.SetLevel(level)
 
 	// use the current context in kubeconfig
-	restConfig, err := clientcmd.BuildConfigFromFlags("", config.Kubeconfig)
+	restConfig, err := clientcmd.BuildConfigFromFlags("", runConfig.Kubeconfig)
 	if err != nil {
 		panic(err.Error())
 	}
+
+	restConfig.QPS = common.K8sClientqps
+	restConfig.Burst = common.K8sClientBurst
 
 	// create the clientset
 	clientset, err := kubernetes.NewForConfig(restConfig)
@@ -60,8 +61,15 @@ func main() {
 		DynamicClient: dynamicClient,
 	}
 
-	err = validate.RunDNSTests(clients, config)
+	var clusterDNSConfig common.ClusterDNSConfig
+
+	err = detect.DetectDNSImplementation(&clients, &clusterDNSConfig)
 	if err != nil {
-		panic(err.Error())
+		log.Info(err)
+	}
+
+	err = validate.RunDNSTests(clients, runConfig, clusterDNSConfig)
+	if err != nil {
+		log.Info(err)
 	}
 }
