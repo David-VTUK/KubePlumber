@@ -17,6 +17,6 @@ Future additions:
 
 ## Example Usage
 
-`go run kubeplumber -kubeconfig ~/.kube/config -configFile config.yaml`
+`kubeplumber -kubeconfig ~/.kube/config -configFile config.yaml`
 
 An example [config.yaml](https://github.com/David-VTUK/KubePlumber/blob/main/config.yaml)
