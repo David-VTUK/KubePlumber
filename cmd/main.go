@@ -63,12 +63,20 @@ func main() {
 
 	var clusterDNSConfig common.ClusterDNSConfig
 
+	log.Info("Detecting DNS Implementation")
 	err = detect.DetectDNSImplementation(&clients, &clusterDNSConfig)
 	if err != nil {
 		log.Info(err)
 	}
 
+	log.Info("Running Internal and External DNS Tests")
 	err = validate.RunDNSTests(clients, runConfig, clusterDNSConfig)
+	if err != nil {
+		log.Info(err)
+	}
+
+	log.Info("Running Overlay Network Tests")
+	err = validate.RunOverlayNetworkTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain)
 	if err != nil {
 		log.Info(err)
 	}
