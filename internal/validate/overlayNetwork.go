@@ -80,6 +80,12 @@ func CheckOverlayNetwork(clientset *kubernetes.Clientset, restConfig *rest.Confi
 	wg.Wait()
 	t.Render()
 
+	// Delete DaemonSet
+	err = clientset.AppsV1().DaemonSets("default").Delete(context.TODO(), daemonSet.Name, metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
