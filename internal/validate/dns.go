@@ -26,24 +26,29 @@ const (
 func RunDNSTests(clients common.Clients, runConfig common.RunConfig, clusterDNSConfig common.ClusterDNSConfig) error {
 
 	// Check the existence of the DNS config map and extract the service endpoint IP and domain
+
+	log.Info("Checking active DNS Endpoint")
 	err := checkDNSEndpoints(clients, clusterDNSConfig)
 	if err != nil {
 		return err
 	}
 
 	// Check the corresponding service endpoints for running DNS pods
+	log.Info("Checking associated endpoint Pods")
 	err = checkDNSPods(clients.KubeClient, clusterDNSConfig)
 	if err != nil {
 		return err
 	}
 
 	// Check the corresponding Pods are correctly resolving internal DNS requests
+	log.Info("Checking internal DNS resolution, please wait")
 	err = checkInternalDNSResolution(clients.KubeClient, clusterDNSConfig, runConfig)
 	if err != nil {
 		return err
 	}
 
 	// Check the corresponding Pods are correctly resolving external DNS requests
+	log.Info("Checking external DNS resolution, please wait")
 	err = checkExternalDNSResolution(clients.KubeClient, clusterDNSConfig, runConfig)
 	if err != nil {
 		return err
@@ -110,6 +115,8 @@ func checkInternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSConfi
 	t := table.NewWriter()
 	t.SetStyle(table.StyleColoredDark)
 	t.SetOutputMirror(os.Stdout)
+	t.SetTitle("DNS Networking Tests (Internal)")
+	t.Style().Title.Align = text.AlignCenter
 	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Intra/Inter", "Status", "Domain"})
 
 	data, err := os.ReadFile(runConfig.ConfigFile)
@@ -174,6 +181,8 @@ func checkExternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSConfi
 	t := table.NewWriter()
 	t.SetStyle(table.StyleColoredDark)
 	t.SetOutputMirror(os.Stdout)
+	t.SetTitle("DNS Networking Tests (External)")
+	t.Style().Title.Align = text.AlignCenter
 	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Intra/Inter", "Status", "Domain"})
 
 	data, err := os.ReadFile(runConfig.ConfigFile)
@@ -260,7 +269,7 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clientset *kubernete
 	var intraOrInter string
 
 	for {
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(time.Second)
 		pod, err = clientset.CoreV1().Pods(testDNSNamespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
 
 		if pod.Spec.NodeName == dnsPod.Spec.NodeName {
@@ -274,29 +283,24 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clientset *kubernete
 		}
 
 		if pod.Status.Phase != "Succeeded" && pod.Status.Phase != "Failed" {
-			log.Infof("Pod %s is in %s state. Waiting for it to complete DNS resolution", pod.Name, pod.Status.Phase)
 			continue
 		}
 
 		if pod.Status.Phase == "Succeeded" {
-			log.Info("Pod has succeeded")
 			t.AppendRow(table.Row{pod.Spec.NodeName, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, pod.Status.Phase, dnsRecords.Name})
 			err = clientset.CoreV1().Pods(testDNSNamespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{})
 			if err != nil {
 				return err
 			}
-			log.Info("Deleted Pod")
 			break
 		}
 
 		if pod.Status.Phase == "Failed" {
-			log.Info("Pod has failed")
 			t.AppendRow(table.Row{pod.Spec.NodeName, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, text.FgRed.Sprint(pod.Status.Phase), dnsRecords.Name})
 			err = clientset.CoreV1().Pods(testDNSNamespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{})
 			if err != nil {
 				return err
 			}
-			log.Info("Deleted Pod")
 			break
 		}
 	}

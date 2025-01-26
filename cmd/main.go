@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/David-VTUK/KubePlumber/common"
+	"github.com/David-VTUK/KubePlumber/internal/detect"
 	"github.com/David-VTUK/KubePlumber/internal/validate"
 	log "github.com/sirupsen/logrus"
 	"k8s.io/client-go/dynamic"
@@ -62,19 +63,20 @@ func main() {
 
 	var clusterDNSConfig common.ClusterDNSConfig
 
-	/*
-		err = detect.DetectDNSImplementation(&clients, &clusterDNSConfig)
-		if err != nil {
-			log.Info(err)
-		}
+	log.Info("Detecting DNS Implementation")
+	err = detect.DetectDNSImplementation(&clients, &clusterDNSConfig)
+	if err != nil {
+		log.Info(err)
+	}
 
-		err = validate.RunDNSTests(clients, runConfig, clusterDNSConfig)
-		if err != nil {
-			log.Info(err)
-		}
-	*/
+	log.Info("Running Internal and External DNS Tests")
+	err = validate.RunDNSTests(clients, runConfig, clusterDNSConfig)
+	if err != nil {
+		log.Info(err)
+	}
 
-	validate.RunOverlayNetworkTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain)
+	log.Info("Running Overlay Network Tests")
+	err = validate.RunOverlayNetworkTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain)
 	if err != nil {
 		log.Info(err)
 	}
