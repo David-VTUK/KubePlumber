@@ -5,6 +5,9 @@
 * Internal DNS Resolution (Inter + Intra node)
 * Internal traffic testing (Inter and Intra node)
 * External DNS resolution
+
+Future additions:
+
 * MTU Validation between nodes
 * Host NIC configuration
 
@@ -14,10 +17,6 @@
 
 ## Example Usage
 
-For an OpenShift cluster:
+`go run kubeplumber -kubeconfig ~/.kube/config -configFile config.yaml`
 
-`go run ./cmd/main.go -kubeconfig ~/.kube/config -dnsConfigMapName default -dnsConfigNamespace openshift-dns -isOpenShift true`
-
-For a k3s/generic cluster
-
-`go run ./cmd/main.go -kubeconfig ~/.kube/config`
+An example [config.yaml](https://github.com/David-VTUK/KubePlumber/blob/main/config.yaml)
