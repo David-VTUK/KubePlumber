@@ -1,6 +1,8 @@
 package common
 
 import (
+	"time"
+
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -11,6 +13,7 @@ import (
 type Clients struct {
 	KubeClient    *kubernetes.Clientset
 	DynamicClient *dynamic.DynamicClient
+	Timeout       time.Duration
 }
 
 // DNSConfig is the top-level struct corresponding to the YAML structure.

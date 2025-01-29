@@ -1,7 +1,6 @@
 package validate
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -13,10 +12,10 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/context"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 )
 
 func RunDNSTests(clients common.Clients, runConfig common.RunConfig, clusterDNSConfig common.ClusterDNSConfig) error {
@@ -31,21 +30,21 @@ func RunDNSTests(clients common.Clients, runConfig common.RunConfig, clusterDNSC
 
 	// Check the corresponding service endpoints for running DNS pods
 	log.Info("Checking associated endpoint Pods")
-	err = checkDNSPods(clients.KubeClient, clusterDNSConfig)
+	err = checkDNSPods(clients, clusterDNSConfig)
 	if err != nil {
 		return err
 	}
 
 	// Check the corresponding Pods are correctly resolving internal DNS requests
 	log.Info("Checking internal DNS resolution, please wait")
-	err = checkInternalDNSResolution(clients.KubeClient, clusterDNSConfig, runConfig)
+	err = checkInternalDNSResolution(clients, clusterDNSConfig, runConfig)
 	if err != nil {
 		return err
 	}
 
 	// Check the corresponding Pods are correctly resolving external DNS requests
 	log.Info("Checking external DNS resolution, please wait")
-	err = checkExternalDNSResolution(clients.KubeClient, clusterDNSConfig, runConfig)
+	err = checkExternalDNSResolution(clients, clusterDNSConfig, runConfig)
 	if err != nil {
 		return err
 	}
@@ -54,8 +53,10 @@ func RunDNSTests(clients common.Clients, runConfig common.RunConfig, clusterDNSC
 }
 
 func checkDNSEndpoints(clients common.Clients, clusterDNSConfig common.ClusterDNSConfig) error {
+	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
+	defer cancel()
 
-	endpoints, err := clients.KubeClient.CoreV1().Endpoints(clusterDNSConfig.DNSServiceNamespace).Get(context.TODO(), clusterDNSConfig.DNSServiceServiceName, metav1.GetOptions{})
+	endpoints, err := clients.KubeClient.CoreV1().Endpoints(clusterDNSConfig.DNSServiceNamespace).Get(ctx, clusterDNSConfig.DNSServiceServiceName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -64,7 +65,7 @@ func checkDNSEndpoints(clients common.Clients, clusterDNSConfig common.ClusterDN
 		return errors.New("no active endpoints found for DNS Service")
 	}
 
-	podList, err := clients.KubeClient.CoreV1().Pods(clusterDNSConfig.DNSServiceNamespace).List(context.TODO(), metav1.ListOptions{
+	podList, err := clients.KubeClient.CoreV1().Pods(clusterDNSConfig.DNSServiceNamespace).List(ctx, metav1.ListOptions{
 		LabelSelector: clusterDNSConfig.DNSLabelSelector,
 	})
 
@@ -79,10 +80,13 @@ func checkDNSEndpoints(clients common.Clients, clusterDNSConfig common.ClusterDN
 	return nil
 }
 
-func checkDNSPods(clientset *kubernetes.Clientset, clusterDNSConfig common.ClusterDNSConfig) error {
+func checkDNSPods(clients common.Clients, clusterDNSConfig common.ClusterDNSConfig) error {
+
+	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
+	defer cancel()
 
 	log.Debugf("Getting DNS Pods")
-	pods, err := clientset.CoreV1().Pods(clusterDNSConfig.DNSServiceNamespace).List(context.TODO(), metav1.ListOptions{
+	pods, err := clients.KubeClient.CoreV1().Pods(clusterDNSConfig.DNSServiceNamespace).List(ctx, metav1.ListOptions{
 		LabelSelector: clusterDNSConfig.DNSLabelSelector,
 	})
 
@@ -104,7 +108,10 @@ func checkDNSPods(clientset *kubernetes.Clientset, clusterDNSConfig common.Clust
 	return nil
 }
 
-func checkInternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSConfig common.ClusterDNSConfig, runConfig common.RunConfig) error {
+func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.ClusterDNSConfig, runConfig common.RunConfig) error {
+
+	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
+	defer cancel()
 
 	var dnsConfig common.DNSConfig
 
@@ -126,14 +133,14 @@ func checkInternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSConfi
 		return err
 	}
 
-	dnsPods, err := clientset.CoreV1().Pods(clusterDNSConfig.DNSServiceNamespace).List(context.TODO(), metav1.ListOptions{
+	dnsPods, err := clients.KubeClient.CoreV1().Pods(clusterDNSConfig.DNSServiceNamespace).List(ctx, metav1.ListOptions{
 		LabelSelector: clusterDNSConfig.DNSLabelSelector,
 	})
 	if err != nil {
 		return err
 	}
 
-	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	nodes, err := clients.KubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
@@ -152,7 +159,7 @@ func checkInternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSConfi
 					sem <- struct{}{}        // acquire semaphore
 					defer func() { <-sem }() // release semaphore
 
-					err := createTestDNSPods(node, dnsPod, clientset, runConfig.TestNamespace, internalDNS, t)
+					err := createTestDNSPods(node, dnsPod, clients, runConfig.TestNamespace, internalDNS, t)
 					if err != nil {
 						return err
 					}
@@ -170,7 +177,10 @@ func checkInternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSConfi
 	return nil
 }
 
-func checkExternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSConfig common.ClusterDNSConfig, runConfig common.RunConfig) error {
+func checkExternalDNSResolution(clients common.Clients, clusterDNSConfig common.ClusterDNSConfig, runConfig common.RunConfig) error {
+
+	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
+	defer cancel()
 
 	var dnsConfig common.DNSConfig
 
@@ -192,14 +202,14 @@ func checkExternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSConfi
 		return err
 	}
 
-	dnsPods, err := clientset.CoreV1().Pods(clusterDNSConfig.DNSServiceNamespace).List(context.TODO(), metav1.ListOptions{
+	dnsPods, err := clients.KubeClient.CoreV1().Pods(clusterDNSConfig.DNSServiceNamespace).List(ctx, metav1.ListOptions{
 		LabelSelector: clusterDNSConfig.DNSLabelSelector,
 	})
 	if err != nil {
 		return err
 	}
 
-	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	nodes, err := clients.KubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
@@ -218,7 +228,7 @@ func checkExternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSConfi
 					sem <- struct{}{}        // acquire semaphore
 					defer func() { <-sem }() // release semaphore
 
-					err := createTestDNSPods(node, dnsPod, clientset, runConfig.TestNamespace, externalDNS, t)
+					err := createTestDNSPods(node, dnsPod, clients, runConfig.TestNamespace, externalDNS, t)
 					if err != nil {
 						return err
 					}
@@ -230,14 +240,16 @@ func checkExternalDNSResolution(clientset *kubernetes.Clientset, clusterDNSConfi
 	}
 
 	wg.Wait()
-
 	t.Render()
 	return nil
 }
 
-func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clientset *kubernetes.Clientset, namespace string, dnsRecords common.DNSRecord, t table.Writer) error {
+func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clients common.Clients, namespace string, dnsRecords common.DNSRecord, t table.Writer) error {
 
-	pod, err := clientset.CoreV1().Pods(namespace).Create(context.TODO(), &corev1.Pod{
+	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
+	defer cancel()
+
+	pod, err := clients.KubeClient.CoreV1().Pods(namespace).Create(ctx, &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "dns-test-",
 			Namespace:    namespace,
@@ -266,7 +278,7 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clientset *kubernete
 
 	for {
 		time.Sleep(time.Second)
-		pod, err = clientset.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+		pod, err = clients.KubeClient.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 
 		if pod.Spec.NodeName == dnsPod.Spec.NodeName {
 			intraOrInter = "intra"
@@ -284,7 +296,7 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clientset *kubernete
 
 		if pod.Status.Phase == "Succeeded" {
 			t.AppendRow(table.Row{pod.Spec.NodeName, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, pod.Status.Phase, dnsRecords.Name})
-			err = clientset.CoreV1().Pods(namespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{})
+			err = clients.KubeClient.CoreV1().Pods(namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
 			if err != nil {
 				return err
 			}
@@ -293,7 +305,7 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clientset *kubernete
 
 		if pod.Status.Phase == "Failed" {
 			t.AppendRow(table.Row{pod.Spec.NodeName, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, text.FgRed.Sprint(pod.Status.Phase), dnsRecords.Name})
-			err = clientset.CoreV1().Pods(namespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{})
+			err = clients.KubeClient.CoreV1().Pods(namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
 			if err != nil {
 				return err
 			}
