@@ -70,7 +70,6 @@ func GetDNSCoreFile(clients *common.Clients, clusterDNSConfig *common.ClusterDNS
 	for _, configMap := range configMaps.Items {
 		if corefile, exists := configMap.Data["Corefile"]; exists {
 			clusterDomain, err := extractClusterDomain(corefile)
-			log.Debug("Cluster Domain: ", clusterDomain)
 			if err != nil {
 				return err
 			}
