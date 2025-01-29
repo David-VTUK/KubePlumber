@@ -15,7 +15,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
 )
@@ -23,7 +22,7 @@ import (
 func RunOverlayNetworkTests(clients common.Clients, restConfig *rest.Config, clusterDomain string, runConfig common.RunConfig) error {
 
 	log.Info("Checking overlay network")
-	err := CheckOverlayNetwork(clients.KubeClient, restConfig, clusterDomain, runConfig.TestNamespace)
+	err := CheckOverlayNetwork(clients, restConfig, clusterDomain, runConfig.TestNamespace)
 	if err != nil {
 		return err
 	}
@@ -32,7 +31,10 @@ func RunOverlayNetworkTests(clients common.Clients, restConfig *rest.Config, clu
 
 }
 
-func CheckOverlayNetwork(clientset *kubernetes.Clientset, restConfig *rest.Config, clusterDomain string, namespace string) error {
+func CheckOverlayNetwork(clients common.Clients, restConfig *rest.Config, clusterDomain string, namespace string) error {
+
+	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
+	defer cancel()
 
 	t := table.NewWriter()
 	t.SetStyle(table.StyleColoredDark)
@@ -41,13 +43,13 @@ func CheckOverlayNetwork(clientset *kubernetes.Clientset, restConfig *rest.Confi
 	t.Style().Title.Align = text.AlignCenter
 	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Status", "Protocol"})
 
-	daemonSet, err := CreateDaemonSet(clientset, namespace)
+	daemonSet, err := CreateDaemonSet(clients, namespace)
 
 	if err != nil {
 		return err
 	}
 
-	podList, err := clientset.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
+	podList, err := clients.KubeClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: "app=" + daemonSet.GenerateName,
 	})
 
@@ -62,17 +64,17 @@ func CheckOverlayNetwork(clientset *kubernetes.Clientset, restConfig *rest.Confi
 		for _, targetPod := range podList.Items {
 			wg.Add(1)
 
-			go func(clientSet *kubernetes.Clientset, restConfig *rest.Config, pod corev1.Pod, targetPod corev1.Pod, t table.Writer) {
+			go func(clients common.Clients, restConfig *rest.Config, pod corev1.Pod, targetPod corev1.Pod, t table.Writer) {
 
 				defer wg.Done()
 				sem <- struct{}{}        // acquire semaphore
 				defer func() { <-sem }() // release semaphore
 
 				if pod.Name != targetPod.Name {
-					_ = RunCurlCommand(clientset, restConfig, pod, targetPod, t)
+					_ = RunCurlCommand(clients, restConfig, pod, targetPod, t)
 				}
 
-			}(clientset, restConfig, pod, targetPod, t)
+			}(clients, restConfig, pod, targetPod, t)
 
 		}
 	}
@@ -81,7 +83,7 @@ func CheckOverlayNetwork(clientset *kubernetes.Clientset, restConfig *rest.Confi
 	t.Render()
 
 	// Delete DaemonSet
-	err = clientset.AppsV1().DaemonSets(namespace).Delete(context.TODO(), daemonSet.Name, metav1.DeleteOptions{})
+	err = clients.KubeClient.AppsV1().DaemonSets(namespace).Delete(ctx, daemonSet.Name, metav1.DeleteOptions{})
 	if err != nil {
 		return err
 	}
@@ -89,10 +91,13 @@ func CheckOverlayNetwork(clientset *kubernetes.Clientset, restConfig *rest.Confi
 	return nil
 }
 
-func CreateDaemonSet(clientset *kubernetes.Clientset, namespace string) (appsv1.DaemonSet, error) {
+func CreateDaemonSet(clients common.Clients, namespace string) (appsv1.DaemonSet, error) {
+
+	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
+	defer cancel()
 
 	// Create Daemonset
-	daemonSet, err := clientset.AppsV1().DaemonSets(namespace).Create(context.TODO(), &appsv1.DaemonSet{
+	daemonSet, err := clients.KubeClient.AppsV1().DaemonSets(namespace).Create(ctx, &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "overlay-network-test",
 			Namespace:    namespace,
@@ -128,7 +133,7 @@ func CreateDaemonSet(clientset *kubernetes.Clientset, namespace string) (appsv1.
 	// Wait for DaemonSet to be ready
 	for {
 		time.Sleep(time.Second)
-		daemonSet, err = clientset.AppsV1().DaemonSets(namespace).Get(context.TODO(), daemonSet.Name, metav1.GetOptions{})
+		daemonSet, err = clients.KubeClient.AppsV1().DaemonSets(namespace).Get(ctx, daemonSet.Name, metav1.GetOptions{})
 
 		if err != nil {
 			return appsv1.DaemonSet{}, err
@@ -142,11 +147,11 @@ func CreateDaemonSet(clientset *kubernetes.Clientset, namespace string) (appsv1.
 	return *daemonSet, nil
 }
 
-func RunCurlCommand(clientset *kubernetes.Clientset, restConfig *rest.Config, sourcePod corev1.Pod, targetPod corev1.Pod, t table.Writer) error {
+func RunCurlCommand(clients common.Clients, restConfig *rest.Config, sourcePod corev1.Pod, targetPod corev1.Pod, t table.Writer) error {
 
 	command := []string{"curl", "-o", "/dev/null", "-s", "-w", "%{http_code}", targetPod.Status.PodIP}
 
-	req := clientset.CoreV1().RESTClient().Post().
+	req := clients.KubeClient.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(sourcePod.Name).
 		Namespace(sourcePod.Namespace).

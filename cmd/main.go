@@ -61,6 +61,7 @@ func main() {
 	clients := common.Clients{
 		KubeClient:    clientset,
 		DynamicClient: dynamicClient,
+		Timeout:       common.K8sClientTimeout,
 	}
 
 	// Create namespace if it does not exist
