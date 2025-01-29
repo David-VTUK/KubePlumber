@@ -20,10 +20,10 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 )
 
-func RunOverlayNetworkTests(clients common.Clients, restConfig *rest.Config, clusterDomain string) error {
+func RunOverlayNetworkTests(clients common.Clients, restConfig *rest.Config, clusterDomain string, runConfig common.RunConfig) error {
 
 	log.Info("Checking overlay network")
-	err := CheckOverlayNetwork(clients.KubeClient, restConfig, clusterDomain)
+	err := CheckOverlayNetwork(clients.KubeClient, restConfig, clusterDomain, runConfig.TestNamespace)
 	if err != nil {
 		return err
 	}
@@ -32,7 +32,7 @@ func RunOverlayNetworkTests(clients common.Clients, restConfig *rest.Config, clu
 
 }
 
-func CheckOverlayNetwork(clientset *kubernetes.Clientset, restConfig *rest.Config, clusterDomain string) error {
+func CheckOverlayNetwork(clientset *kubernetes.Clientset, restConfig *rest.Config, clusterDomain string, namespace string) error {
 
 	t := table.NewWriter()
 	t.SetStyle(table.StyleColoredDark)
@@ -41,13 +41,13 @@ func CheckOverlayNetwork(clientset *kubernetes.Clientset, restConfig *rest.Confi
 	t.Style().Title.Align = text.AlignCenter
 	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Status", "Protocol"})
 
-	daemonSet, err := CreateDaemonSet(clientset)
+	daemonSet, err := CreateDaemonSet(clientset, namespace)
 
 	if err != nil {
 		return err
 	}
 
-	podList, err := clientset.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{
+	podList, err := clientset.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: "app=" + daemonSet.GenerateName,
 	})
 
@@ -81,7 +81,7 @@ func CheckOverlayNetwork(clientset *kubernetes.Clientset, restConfig *rest.Confi
 	t.Render()
 
 	// Delete DaemonSet
-	err = clientset.AppsV1().DaemonSets("default").Delete(context.TODO(), daemonSet.Name, metav1.DeleteOptions{})
+	err = clientset.AppsV1().DaemonSets(namespace).Delete(context.TODO(), daemonSet.Name, metav1.DeleteOptions{})
 	if err != nil {
 		return err
 	}
@@ -89,13 +89,13 @@ func CheckOverlayNetwork(clientset *kubernetes.Clientset, restConfig *rest.Confi
 	return nil
 }
 
-func CreateDaemonSet(clientset *kubernetes.Clientset) (appsv1.DaemonSet, error) {
+func CreateDaemonSet(clientset *kubernetes.Clientset, namespace string) (appsv1.DaemonSet, error) {
 
 	// Create Daemonset
-	daemonSet, err := clientset.AppsV1().DaemonSets("default").Create(context.TODO(), &appsv1.DaemonSet{
+	daemonSet, err := clientset.AppsV1().DaemonSets(namespace).Create(context.TODO(), &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "overlay-network-test",
-			Namespace:    "default",
+			Namespace:    namespace,
 		},
 		Spec: appsv1.DaemonSetSpec{
 			Selector: &metav1.LabelSelector{
@@ -128,7 +128,7 @@ func CreateDaemonSet(clientset *kubernetes.Clientset) (appsv1.DaemonSet, error) 
 	// Wait for DaemonSet to be ready
 	for {
 		time.Sleep(time.Second)
-		daemonSet, err = clientset.AppsV1().DaemonSets("default").Get(context.TODO(), daemonSet.Name, metav1.GetOptions{})
+		daemonSet, err = clientset.AppsV1().DaemonSets(namespace).Get(context.TODO(), daemonSet.Name, metav1.GetOptions{})
 
 		if err != nil {
 			return appsv1.DaemonSet{}, err
