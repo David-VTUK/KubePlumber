@@ -36,7 +36,6 @@ type ClusterDNSConfig struct {
 	DNSServiceServiceName string
 	DNSServiceDomain      string
 	DNSServiceNamespace   string
-	DNSConfigObjectName   string
 	DNSLabelSelector      string
 }
 

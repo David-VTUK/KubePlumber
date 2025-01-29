@@ -63,7 +63,7 @@ func main() {
 
 	var clusterDNSConfig common.ClusterDNSConfig
 
-	log.Info("Detecting DNS Implementation")
+	log.Info("Detecting DNS Service")
 	err = detect.DetectDNSImplementation(&clients, &clusterDNSConfig)
 	if err != nil {
 		log.Info(err)
@@ -80,4 +80,5 @@ func main() {
 	if err != nil {
 		log.Info(err)
 	}
+
 }
