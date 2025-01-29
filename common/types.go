@@ -26,9 +26,10 @@ type DNSRecord struct {
 
 // Config struct contains the configuration options for querying the Kubernetes cluster.
 type RunConfig struct {
-	Kubeconfig string
-	LogLevel   string
-	ConfigFile string
+	Kubeconfig    string
+	LogLevel      string
+	ConfigFile    string
+	TestNamespace string
 }
 
 type ClusterDNSConfig struct {

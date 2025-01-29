@@ -6,6 +6,7 @@ import (
 
 	"github.com/David-VTUK/KubePlumber/common"
 	"github.com/David-VTUK/KubePlumber/internal/detect"
+	"github.com/David-VTUK/KubePlumber/internal/setup"
 	"github.com/David-VTUK/KubePlumber/internal/validate"
 	log "github.com/sirupsen/logrus"
 	"k8s.io/client-go/dynamic"
@@ -16,9 +17,10 @@ import (
 func main() {
 
 	runConfig := common.RunConfig{}
-	flag.StringVar(&runConfig.LogLevel, "logLevel", "debug", "Log level (debug, info, warn, error, fatal, panic)")
-	flag.StringVar(&runConfig.ConfigFile, "configFile", "config.yaml", "Path to the config file")
-	flag.StringVar(&runConfig.Kubeconfig, "kubeconfig", "", "(required) absolute path to the kubeconfig file")
+	flag.StringVar(&runConfig.LogLevel, "loglevel", "debug", "Log level (debug, info, warn, error, fatal, panic)")
+	flag.StringVar(&runConfig.ConfigFile, "config", "config.yaml", "Path to the config file")
+	flag.StringVar(&runConfig.Kubeconfig, "kubeconfig", "~/.kube/config", "(required) absolute path to the kubeconfig file")
+	flag.StringVar(&runConfig.TestNamespace, "namespace", "default", "Namespace to run tests in")
 
 	flag.Parse()
 
@@ -61,6 +63,13 @@ func main() {
 		DynamicClient: dynamicClient,
 	}
 
+	// Create namespace if it does not exist
+	err = setup.CreateNamespace(*clients.KubeClient, runConfig.TestNamespace)
+
+	if err != nil {
+		log.Info(err)
+	}
+
 	var clusterDNSConfig common.ClusterDNSConfig
 
 	log.Info("Detecting DNS Service")
@@ -76,7 +85,7 @@ func main() {
 	}
 
 	log.Info("Running Overlay Network Tests")
-	err = validate.RunOverlayNetworkTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain)
+	err = validate.RunOverlayNetworkTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain, runConfig)
 	if err != nil {
 		log.Info(err)
 	}
