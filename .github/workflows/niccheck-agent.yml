@@ -15,7 +15,7 @@ jobs:
         go-version: '1.23'
 
     - name: Build
-      run: go build -v ./docker/main.go ./docker/kubeplumber-niccheck
+      run: go build -v ./docker/main.go -o ./docker/kubeplumber-niccheck
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
