@@ -48,3 +48,20 @@ var OpenShiftDNSGVR = schema.GroupVersionResource{
 	Version:  "v1",
 	Resource: "dnses",
 }
+
+type NetworkInterface struct {
+	Name string `json:"name"`
+	//Flags            string `json:"flags"`
+	MTU          int    `json:"mtu"`
+	MAC          string `json:"mac"`
+	Up           bool   `json:"up"`
+	Broadcast    bool   `json:"broadcast"`
+	Loopback     bool   `json:"loopback"`
+	PointToPoint bool   `json:"pointtopoint"`
+	Multicast    bool   `json:"multicast"`
+	Running      bool   `json:"running"`
+}
+
+type NetworkInterfaces struct {
+	Interfaces []NetworkInterface `json:"interfaces"`
+}
