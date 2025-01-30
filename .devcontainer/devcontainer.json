@@ -11,7 +11,9 @@
 				"redhat.vscode-yaml",
 				"GitHub.copilot",
                 "yzhang.markdown-all-in-one",
-				"golang.go"
+				"golang.go",
+				"ms-azuretools.vscode-docker",
+				"github.vscode-github-actions"
 			]
 		}
 	},
