@@ -1,7 +1,16 @@
 name: Niccheck agent build
 
-on: [workflow_dispatch]
-
+on: 
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+      
 jobs:
   build:
     runs-on: ubuntu-latest

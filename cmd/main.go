@@ -91,4 +91,9 @@ func main() {
 		log.Info(err)
 	}
 
+	err = detect.NICAttributes(clients, runConfig)
+	if err != nil {
+		log.Info(err)
+	}
+
 }

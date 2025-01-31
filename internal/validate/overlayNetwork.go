@@ -80,6 +80,9 @@ func CheckOverlayNetwork(clients common.Clients, restConfig *rest.Config, cluste
 	}
 
 	wg.Wait()
+	t.SortBy([]table.SortBy{
+		{Name: "From (Node)", Mode: table.Asc},
+	})
 	t.Render()
 
 	// Delete DaemonSet

@@ -11,7 +11,7 @@ import (
 
 func main() {
 
-	var networkInterfaces []common.NetworkInterfaces
+	var networkInterfaces common.NetworkInterfaces
 
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -26,25 +26,20 @@ func main() {
 			continue
 		}
 
-		networkInterfaces = append(networkInterfaces, common.NetworkInterfaces{
-			Interfaces: []common.NetworkInterface{
-				{
-					Name:         iface.Name,
-					MAC:          iface.HardwareAddr.String(),
-					MTU:          iface.MTU,
-					Up:           iface.Flags&net.FlagUp != 0,
-					Broadcast:    iface.Flags&net.FlagBroadcast != 0,
-					Loopback:     iface.Flags&net.FlagLoopback != 0,
-					PointToPoint: iface.Flags&net.FlagPointToPoint != 0,
-					Multicast:    iface.Flags&net.FlagMulticast != 0,
-					Running:      iface.Flags&net.FlagRunning != 0,
-				},
-			},
+		networkInterfaces.Interfaces = append(networkInterfaces.Interfaces, common.NetworkInterface{
+			Name:         iface.Name,
+			MAC:          iface.HardwareAddr.String(),
+			MTU:          iface.MTU,
+			Up:           iface.Flags&net.FlagUp != 0,
+			Broadcast:    iface.Flags&net.FlagBroadcast != 0,
+			Loopback:     iface.Flags&net.FlagLoopback != 0,
+			PointToPoint: iface.Flags&net.FlagPointToPoint != 0,
+			Multicast:    iface.Flags&net.FlagMulticast != 0,
+			Running:      iface.Flags&net.FlagRunning != 0,
 		})
-
 	}
 
-	jsonData, err := json.MarshalIndent(networkInterfaces, "", "  ")
+	jsonData, err := json.Marshal(networkInterfaces)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
