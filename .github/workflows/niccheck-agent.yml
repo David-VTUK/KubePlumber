@@ -2,10 +2,6 @@ name: Niccheck agent build
 
 on: 
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - dev
   pull_request:
     branches:
       - main
@@ -35,10 +31,11 @@ jobs:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-    - name: Build and push
+    - name: Build and push multi-platform image
       uses: docker/build-push-action@v3
       with:
         context: ./docker
         push: true
+        platforms: linux/amd64,linux/arm64
         tags: |
           virtualthoughts/kubeplumber-niccheck:latest

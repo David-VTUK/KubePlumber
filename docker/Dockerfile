@@ -1,6 +1,18 @@
-FROM fedora:42
+FROM golang:1.23 as builder
 
-COPY ./kubeplumber-niccheck /usr/bin/kubeplumber-niccheck
+ARG TARGETARCH
 
-ENTRYPOINT ["/usr/bin/kubeplumber-niccheck"]
+WORKDIR /app
 
+COPY . .
+
+# Build the binary for the target platform
+RUN GOOS=linux GOARCH=${TARGETARCH} go build -v -o kubeplumber-niccheck ./main.go
+
+FROM alpine:latest
+
+WORKDIR /root/
+
+COPY --from=builder /app/kubeplumber-niccheck .
+
+CMD ["./kubeplumber-niccheck"]

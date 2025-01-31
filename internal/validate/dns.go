@@ -265,7 +265,7 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clients common.Clien
 			Containers: []corev1.Container{
 				{
 					Name:  "dns-test",
-					Image: "quay.io/quay/busybox",
+					Image: "busybox",
 					Command: []string{
 						"nslookup",
 						dnsRecords.Name,
