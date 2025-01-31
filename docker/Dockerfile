@@ -15,4 +15,4 @@ WORKDIR /root/
 
 COPY --from=builder /app/kubeplumber-niccheck .
 
-CMD ["./kubeplumber-niccheck"]
+ENTRYPOINT ["./kubeplumber-niccheck"]
