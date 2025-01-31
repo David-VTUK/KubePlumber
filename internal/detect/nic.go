@@ -17,7 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func NICAttributes(clients *common.Clients, runConfig common.RunConfig) error {
+func NICAttributes(clients common.Clients, runConfig common.RunConfig) error {
 
 	t := table.NewWriter()
 	t.SetStyle(table.StyleColoredDark)
@@ -55,12 +55,15 @@ func NICAttributes(clients *common.Clients, runConfig common.RunConfig) error {
 	}
 
 	wg.Wait()
+	t.SortBy([]table.SortBy{
+		{Name: "Node", Mode: table.Asc},
+	})
 	t.Render()
 	return nil
 
 }
 
-func createNicTestPods(node corev1.Node, clients *common.Clients, runConfig common.RunConfig, t table.Writer) error {
+func createNicTestPods(node corev1.Node, clients common.Clients, runConfig common.RunConfig, t table.Writer) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
 	defer cancel()
@@ -73,6 +76,7 @@ func createNicTestPods(node corev1.Node, clients *common.Clients, runConfig comm
 		Spec: corev1.PodSpec{
 			NodeName:      node.Name,
 			RestartPolicy: corev1.RestartPolicyNever,
+			HostNetwork:   true,
 			Containers: []corev1.Container{
 				{
 					Name:  "nic-check",
@@ -115,32 +119,22 @@ func createNicTestPods(node corev1.Node, clients *common.Clients, runConfig comm
 
 			var interfaces common.NetworkInterfaces
 
-			// Debug: Print the JSON data
-			log.Info("JSON Data:", buf.String())
-
 			err = json.Unmarshal(buf.Bytes(), &interfaces)
 			if err != nil {
 				log.Info(err)
 			}
 
-			log.Println("\nUnmarshaled Struct:")
-			log.Printf("%+v\n", interfaces)
-
-			/*
-					for _, iface := range interfaces.Interfaces {
-						log.Info("adding address info")
-						t.AppendRow(table.Row{node.Name, iface.Name, iface.MAC, iface.MTU, iface.Up, iface.Broadcast, iface.Loopback, iface.PointToPoint, iface.Multicast})
-					}
-				}
-
-			*/
-			//err = clients.KubeClient.CoreV1().Pods(runConfig.TestNamespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
-			//if err != nil {
-			//	return err
-			//}
-			break
+			for _, iface := range interfaces.Interfaces {
+				t.AppendRow(table.Row{node.Name, iface.Name, iface.MAC, iface.MTU, iface.Up, iface.Broadcast, iface.Loopback, iface.PointToPoint, iface.Multicast})
+			}
 		}
 
+		err = clients.KubeClient.CoreV1().Pods(runConfig.TestNamespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
+		if err != nil {
+			return err
+		}
+
+		break
 	}
 
 	return nil

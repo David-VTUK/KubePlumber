@@ -7,6 +7,7 @@ import (
 	"github.com/David-VTUK/KubePlumber/common"
 	"github.com/David-VTUK/KubePlumber/internal/detect"
 	"github.com/David-VTUK/KubePlumber/internal/setup"
+	"github.com/David-VTUK/KubePlumber/internal/validate"
 	log "github.com/sirupsen/logrus"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -70,31 +71,27 @@ func main() {
 		log.Info(err)
 	}
 
-	/*
+	var clusterDNSConfig common.ClusterDNSConfig
 
-		var clusterDNSConfig common.ClusterDNSConfig
+	log.Info("Detecting DNS Service")
+	err = detect.DetectDNSImplementation(&clients, &clusterDNSConfig)
+	if err != nil {
+		log.Info(err)
+	}
 
-		log.Info("Detecting DNS Service")
-		err = detect.DetectDNSImplementation(&clients, &clusterDNSConfig)
-		if err != nil {
-			log.Info(err)
-		}
+	log.Info("Running Internal and External DNS Tests")
+	err = validate.RunDNSTests(clients, runConfig, clusterDNSConfig)
+	if err != nil {
+		log.Info(err)
+	}
 
-		log.Info("Running Internal and External DNS Tests")
-		err = validate.RunDNSTests(clients, runConfig, clusterDNSConfig)
-		if err != nil {
-			log.Info(err)
-		}
+	log.Info("Running Overlay Network Tests")
+	err = validate.RunOverlayNetworkTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain, runConfig)
+	if err != nil {
+		log.Info(err)
+	}
 
-		log.Info("Running Overlay Network Tests")
-		err = validate.RunOverlayNetworkTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain, runConfig)
-		if err != nil {
-			log.Info(err)
-		}
-
-	*/
-
-	err = detect.NICAttributes(&clients, runConfig)
+	err = detect.NICAttributes(clients, runConfig)
 	if err != nil {
 		log.Info(err)
 	}

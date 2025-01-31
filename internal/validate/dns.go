@@ -171,7 +171,9 @@ func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 	}
 
 	wg.Wait() // wait for all goroutines to finish
-
+	t.SortBy([]table.SortBy{
+		{Name: "From (Node)", Mode: table.Asc},
+	})
 	t.Render()
 
 	return nil
@@ -240,6 +242,9 @@ func checkExternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 	}
 
 	wg.Wait()
+	t.SortBy([]table.SortBy{
+		{Name: "From (Node)", Mode: table.Asc},
+	})
 	t.Render()
 	return nil
 }
