@@ -20,15 +20,28 @@ func main() {
 	runConfig := common.RunConfig{}
 	flag.StringVar(&runConfig.LogLevel, "loglevel", "debug", "Log level (debug, info, warn, error, fatal, panic)")
 	flag.StringVar(&runConfig.ConfigFile, "config", "config.yaml", "Path to the config file")
-	flag.StringVar(&runConfig.Kubeconfig, "kubeconfig", "~/.kube/config", "(required) absolute path to the kubeconfig file")
+	flag.StringVar(&runConfig.Kubeconfig, "kubeconfig", "", "(required) absolute path to the kubeconfig file")
 	flag.StringVar(&runConfig.TestNamespace, "namespace", "default", "Namespace to run tests in")
-
 	flag.Parse()
 
-	// Check if config file exists
-	_, err := os.Stat(runConfig.ConfigFile)
-	if os.IsNotExist(err) {
-		log.Fatalf("Config file %s does not exist", runConfig.ConfigFile)
+	if runConfig.Kubeconfig == "" {
+		log.Info("Kubeconfig not provided, attempting to use KUBECONFIG environment variable")
+		kubeconfig := os.Getenv("KUBECONFIG")
+		if kubeconfig == "" {
+			log.Info("KUBECONFIG environment variable not set, attempting to use load ~/.kube/config")
+		}
+
+		homedir, err := os.UserHomeDir()
+		if err != nil {
+			log.Fatalf("Error getting home directory: %v", err)
+		}
+
+		_, err = os.Stat(homedir + "/.kube/config")
+		if err != nil {
+			log.Fatalf("Kubeconfig not provided and default kubeconfig not found: %v", err)
+		} else {
+			runConfig.Kubeconfig = homedir + "/.kube/config"
+		}
 	}
 
 	level, err := log.ParseLevel(runConfig.LogLevel)
