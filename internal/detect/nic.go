@@ -18,6 +18,7 @@ import (
 )
 
 func NICAttributes(clients common.Clients, runConfig common.RunConfig) error {
+	log.Info("Checking NIC Attributes")
 
 	t := table.NewWriter()
 	t.SetStyle(table.StyleColoredDark)

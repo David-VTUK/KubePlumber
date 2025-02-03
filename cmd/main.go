@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/David-VTUK/KubePlumber/common"
+	"github.com/David-VTUK/KubePlumber/internal/cleanup"
 	"github.com/David-VTUK/KubePlumber/internal/detect"
 	"github.com/David-VTUK/KubePlumber/internal/setup"
 	"github.com/David-VTUK/KubePlumber/internal/validate"
@@ -76,24 +77,32 @@ func main() {
 	log.Info("Detecting DNS Service")
 	err = detect.DetectDNSImplementation(&clients, &clusterDNSConfig)
 	if err != nil {
-		log.Info(err)
+		log.Errorf("Tests Aborted due to: %s", err)
+		cleanup.RemoveTestPods(clients, runConfig)
+		os.Exit(1)
 	}
 
 	log.Info("Running Internal and External DNS Tests")
 	err = validate.RunDNSTests(clients, runConfig, clusterDNSConfig)
 	if err != nil {
-		log.Info(err)
+		log.Errorf("Tests Aborted due to: %s", err)
+		cleanup.RemoveTestPods(clients, runConfig)
+		os.Exit(1)
 	}
 
 	log.Info("Running Overlay Network Tests")
 	err = validate.RunOverlayNetworkTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain, runConfig)
 	if err != nil {
-		log.Info(err)
+		log.Errorf("Tests Aborted due to: %s", err)
+		cleanup.RemoveTestPods(clients, runConfig)
+		os.Exit(1)
 	}
 
 	err = detect.NICAttributes(clients, runConfig)
 	if err != nil {
-		log.Info(err)
+		log.Errorf("Tests Aborted due to: %s", err)
+		cleanup.RemoveTestPods(clients, runConfig)
+		os.Exit(1)
 	}
 
 }

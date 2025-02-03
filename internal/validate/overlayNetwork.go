@@ -104,6 +104,9 @@ func CreateDaemonSet(clients common.Clients, namespace string) (appsv1.DaemonSet
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "overlay-network-test",
 			Namespace:    namespace,
+			Labels: map[string]string{
+				"kubeplumber": "true",
+			},
 		},
 		Spec: appsv1.DaemonSetSpec{
 			Selector: &metav1.LabelSelector{
