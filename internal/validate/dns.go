@@ -129,7 +129,6 @@ func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 
 	err = yaml.Unmarshal(data, &dnsConfig)
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 
@@ -147,6 +146,7 @@ func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 10)
+	errChan := make(chan error, 1)
 
 	for _, node := range nodes.Items {
 		for _, dnsPod := range dnsPods.Items {
@@ -154,23 +154,33 @@ func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 
 				wg.Add(1)
 
-				go func(node corev1.Node, dnsPod corev1.Pod, internalDNS common.DNSRecord) error {
+				go func(node corev1.Node, dnsPod corev1.Pod, internalDNS common.DNSRecord) {
 					defer wg.Done()
 					sem <- struct{}{}        // acquire semaphore
 					defer func() { <-sem }() // release semaphore
 
 					err := createTestDNSPods(node, dnsPod, clients, runConfig.TestNamespace, internalDNS, t)
 					if err != nil {
-						return err
+						errChan <- err
 					}
-					return nil
+					errChan <- nil
 				}(node, dnsPod, internalDNS)
 			}
 
 		}
 	}
+	// Wait for all goroutines to finish
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
 
-	wg.Wait() // wait for all goroutines to finish
+	for err := range errChan {
+		if err != nil {
+			return err
+		}
+	}
+
 	t.SortBy([]table.SortBy{
 		{Name: "From (Node)", Mode: table.Asc},
 	})
@@ -258,6 +268,9 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clients common.Clien
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "dns-test-",
 			Namespace:    namespace,
+			Labels: map[string]string{
+				"kubeplumber": "true",
+			},
 		},
 		Spec: corev1.PodSpec{
 			NodeName:      node.Name,
@@ -281,24 +294,32 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clients common.Clien
 	}
 	var intraOrInter string
 
+	if pod.Spec.NodeName == dnsPod.Spec.NodeName {
+		intraOrInter = "intra"
+	} else {
+		intraOrInter = "inter"
+	}
+
 	for {
+
 		time.Sleep(time.Second)
+
 		pod, err = clients.KubeClient.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-
-		if pod.Spec.NodeName == dnsPod.Spec.NodeName {
-			intraOrInter = "intra"
-		} else {
-			intraOrInter = "inter"
-		}
-
 		if err != nil {
 			return err
 		}
 
-		if pod.Status.Phase != "Succeeded" && pod.Status.Phase != "Failed" {
-			continue
+		if pod.Status.ContainerStatuses != nil {
+			for _, containerStatus := range pod.Status.ContainerStatuses {
+				if containerStatus.State.Waiting != nil {
+					if containerStatus.State.Waiting.Reason != "ContainerCreating" && containerStatus.State.Waiting.Reason != "PodInitializing" {
+						return errors.New("Pod " + pod.Name + " not in Running state:" + containerStatus.State.Waiting.Reason)
+					}
+				}
+			}
 		}
 
+		// Successful DNS resolution
 		if pod.Status.Phase == "Succeeded" {
 			t.AppendRow(table.Row{pod.Spec.NodeName, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, pod.Status.Phase, dnsRecords.Name})
 			err = clients.KubeClient.CoreV1().Pods(namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
@@ -308,6 +329,7 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clients common.Clien
 			break
 		}
 
+		// unsuccessful DNS resolution
 		if pod.Status.Phase == "Failed" {
 			t.AppendRow(table.Row{pod.Spec.NodeName, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, text.FgRed.Sprint(pod.Status.Phase), dnsRecords.Name})
 			err = clients.KubeClient.CoreV1().Pods(namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
@@ -316,7 +338,9 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clients common.Clien
 			}
 			break
 		}
+
 	}
 
 	return nil
+
 }
