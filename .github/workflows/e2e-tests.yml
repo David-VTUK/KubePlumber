@@ -24,30 +24,10 @@ jobs:
           go-version: 1.23.4
 
     - name: Run Go tests
-      run: |
-        go test -v ./...
+      run: go test -v ./...
 
     - name: Create YAML file
-      id: create_yaml
-      uses: actions/github-script@v5
-      with:
-        script: |
-          const fs = require('fs');
-          const yaml = require('js-yaml');
-
-          const data = {
-            internal_dns: [
-              { name: "kubernetes.default.svc.cluster.local" }
-            ],
-            external_dns: [
-              { name: "google.com" },
-              { name: "bbc.co.uk" }
-            ]
-          };
-
-          const yamlStr = yaml.dump(data);
-          fs.writeFileSync('config.yaml', yamlStr);
+      run: wget https://raw.githubusercontent.com/David-VTUK/KubePlumber/refs/heads/main/config.yaml
 
     - name: Run Application
-      run: | 
-        go run ./cmd/main.go
+      run:  go run ./cmd/main.go
