@@ -4,7 +4,7 @@ on: [workflow_dispatch]
 
 env:
   #DOWNSTREAM_K3S_VERSION: 'v1.32.1-k3s1'
-  DOWNSTREAM_K3S_VERSION: 'v1.23.10-k3s1'
+  DOWNSTREAM_K3S_VERSION: 'v1.28.14+k3s1'
 
 jobs:
   build:
@@ -28,7 +28,7 @@ jobs:
           --k3s-arg '--kubelet-arg=eviction-hard=imagefs.available<1%,nodefs.available<1%@agent:*'
           --k3s-arg '--kubelet-arg=eviction-minimum-reclaim=imagefs.available=1%,nodefs.available=1%@agent:*'
           --wait
-          
+
     - name: Set up Go
       uses: actions/setup-go@v3
       with:
@@ -36,7 +36,6 @@ jobs:
 
     - name: Run Go tests
       run: |
-        kubectl config use-context test-cluster
         go test -v ./...
 
     - name: Create YAML file
