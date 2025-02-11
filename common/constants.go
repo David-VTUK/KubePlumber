@@ -1,7 +1,9 @@
 package common
 
 const (
-	K8sClientBurst   = 50
-	K8sClientqps     = 25
-	K8sClientTimeout = 10
+	// Reduced QPS and burst to avoid rate limiting
+	K8sClientBurst = 20
+	K8sClientqps   = 10
+	// Increased timeout to allow for DNS resolution tests
+	K8sClientTimeout = 120
 )
