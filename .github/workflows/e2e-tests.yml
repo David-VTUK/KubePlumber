@@ -1,0 +1,49 @@
+name: End to End Testing
+
+on: [workflow_dispatch]
+
+env:
+  DOWNSTREAM_K3S_VERSION: 'v1.32.1-k3s1'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:  
+    - uses: actions/checkout@v4
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v2
+
+    - name: Determine Runner Architecture
+      run: echo "RUNNER_ARCH=${{ RUNNER.ARCH }}" >> $GITHUB_ENV
+
+    - name: Create K3s Cluster
+      uses: AbsaOSS/k3d-action@v2
+      with:
+        cluster-name: "test-cluster"
+        args: >-
+          -p "81:80@agent:0:direct"
+          -p "444:443@agent:0:direct"
+          --image docker.io/rancher/k3s:${{ env.DOWNSTREAM_K3S_VERSION }}-${{ env.RUNNER_ARCH }}
+          --api-port 6644
+          --agents 3
+          --k3s-arg '--kubelet-arg=eviction-hard=imagefs.available<1%,nodefs.available<1%@agent:*'
+          --k3s-arg '--kubelet-arg=eviction-minimum-reclaim=imagefs.available=1%,nodefs.available=1%@agent:*'
+    
+    - name: Wait until K3s is ready
+      run: k3d cluster wait --timeout 180s
+
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+          go-version: 1.19
+
+    - name: Run Go tests
+      run: |
+        kubectl config use-context test-cluster
+        go test -v ./...
+
+    - name: Run Application
+      run: | 
+        go run main.go
+    
