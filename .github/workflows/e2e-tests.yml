@@ -14,9 +14,6 @@ jobs:
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v2
 
-    - name: Determine Runner Architecture
-      run: echo "RUNNER_ARCH=${{ RUNNER.ARCH }}" >> $GITHUB_ENV
-
     - name: Create K3s Cluster
       uses: AbsaOSS/k3d-action@v2
       with:
@@ -24,7 +21,7 @@ jobs:
         args: >-
           -p "81:80@agent:0:direct"
           -p "444:443@agent:0:direct"
-          --image docker.io/rancher/k3s:${{ env.DOWNSTREAM_K3S_VERSION }}-${{ env.RUNNER_ARCH }}
+          --image docker.io/rancher/k3s:${{ env.DOWNSTREAM_K3S_VERSION }}-
           --api-port 6644
           --agents 3
           --k3s-arg '--kubelet-arg=eviction-hard=imagefs.available<1%,nodefs.available<1%@agent:*'
