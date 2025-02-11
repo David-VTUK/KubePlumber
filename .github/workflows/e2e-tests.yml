@@ -15,19 +15,11 @@ jobs:
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v2
 
-    - name: Create K3s Cluster
-      uses: AbsaOSS/k3d-action@v2
-      with:
-        cluster-name: "test-cluster"
-        args: >-
-          -p "81:80@agent:0:direct"
-          -p "444:443@agent:0:direct"
-          --image docker.io/rancher/k3s:${{ env.DOWNSTREAM_K3S_VERSION }}
-          --api-port 6644
-          --agents 3
-          --k3s-arg '--kubelet-arg=eviction-hard=imagefs.available<1%,nodefs.available<1%@agent:*'
-          --k3s-arg '--kubelet-arg=eviction-minimum-reclaim=imagefs.available=1%,nodefs.available=1%@agent:*'
-          --wait
+    - name: Install up K3d
+      run: curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+
+    - name: Stand up K3s Cluster
+      run: k3d cluster create test-cluster -a 3
 
     - name: Set up Go
       uses: actions/setup-go@v3
@@ -61,4 +53,4 @@ jobs:
 
     - name: Run Application
       run: | 
-        go run main.go
+        go run ./cmd/main.go
