@@ -3,7 +3,8 @@ name: End to End Testing
 on: [workflow_dispatch]
 
 env:
-  DOWNSTREAM_K3S_VERSION: 'v1.32.1-k3s1'
+  #DOWNSTREAM_K3S_VERSION: 'v1.32.1-k3s1'
+  DOWNSTREAM_K3S_VERSION: 'v1.23.10-k3s1'
 
 jobs:
   build:
