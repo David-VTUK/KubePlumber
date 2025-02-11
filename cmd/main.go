@@ -27,20 +27,22 @@ func main() {
 	if runConfig.Kubeconfig == "" {
 		log.Info("Kubeconfig not provided, attempting to use KUBECONFIG environment variable")
 		kubeconfig := os.Getenv("KUBECONFIG")
-		if kubeconfig == "" {
-			log.Info("KUBECONFIG environment variable not set, attempting to use load ~/.kube/config")
-		}
-
-		homedir, err := os.UserHomeDir()
-		if err != nil {
-			log.Fatalf("Error getting home directory: %v", err)
-		}
-
-		_, err = os.Stat(homedir + "/.kube/config")
-		if err != nil {
-			log.Fatalf("Kubeconfig not provided and default kubeconfig not found: %v", err)
+		if kubeconfig != "" {
+			runConfig.Kubeconfig = kubeconfig
+			log.Infof("Using KUBECONFIG from environment: %s", kubeconfig)
 		} else {
-			runConfig.Kubeconfig = homedir + "/.kube/config"
+			log.Info("KUBECONFIG environment variable not set, attempting to use load ~/.kube/config")
+			homedir, err := os.UserHomeDir()
+			if err != nil {
+				log.Fatalf("Error getting home directory: %v", err)
+			}
+
+			_, err = os.Stat(homedir + "/.kube/config")
+			if err != nil {
+				log.Fatalf("Kubeconfig not provided and default kubeconfig not found: %v", err)
+			} else {
+				runConfig.Kubeconfig = homedir + "/.kube/config"
+			}
 		}
 	}
 
