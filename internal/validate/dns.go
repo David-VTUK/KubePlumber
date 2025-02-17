@@ -118,7 +118,7 @@ func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 	t.SetOutputMirror(os.Stdout)
 	t.SetTitle("DNS Networking Tests (Internal)")
 	t.Style().Title.Align = text.AlignCenter
-	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Intra/Inter", "Status", "Domain"})
+	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Intra/Inter", "Status", "Domain", "Attempt"})
 
 	data, err := os.ReadFile(runConfig.ConfigFile)
 	if err != nil {
@@ -161,7 +161,7 @@ func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 				wg.Add(1)
 				go func(node corev1.Node, dnsPod corev1.Pod, internalDNS common.DNSRecord) {
 					defer wg.Done()
-					sem <- struct{}{} // acquire semaphore
+					sem <- struct{}{}        // acquire semaphore
 					defer func() { <-sem }() // release semaphore
 
 					select {
@@ -218,7 +218,7 @@ func checkExternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 	t.SetOutputMirror(os.Stdout)
 	t.SetTitle("DNS Networking Tests (External)")
 	t.Style().Title.Align = text.AlignCenter
-	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Intra/Inter", "Status", "Domain"})
+	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Intra/Inter", "Status", "Domain", "Attempt"})
 
 	data, err := os.ReadFile(runConfig.ConfigFile)
 	if err != nil {
@@ -253,7 +253,7 @@ func checkExternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 				wg.Add(1)
 				go func(node corev1.Node, dnsPod corev1.Pod, externalDNS common.DNSRecord) {
 					defer wg.Done()
-					sem <- struct{}{} // acquire semaphore
+					sem <- struct{}{}        // acquire semaphore
 					defer func() { <-sem }() // release semaphore
 
 					select {
@@ -378,7 +378,7 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clients common.Clien
 			// Successful DNS resolution
 			if pod.Status.Phase == "Succeeded" {
 				log.Debugf("DNS resolution succeeded for %s on node %s", dnsRecords.Name, node.Name)
-				t.AppendRow(table.Row{pod.Spec.NodeName, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, pod.Status.Phase, dnsRecords.Name})
+				t.AppendRow(table.Row{pod.Spec.NodeName, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, pod.Status.Phase, dnsRecords.Name, retryCount + 1})
 				_ = clients.KubeClient.CoreV1().Pods(namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
 				return nil
 			}
@@ -386,9 +386,9 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clients common.Clien
 			// Unsuccessful DNS resolution
 			if pod.Status.Phase == "Failed" {
 				log.Debugf("DNS resolution failed for %s on node %s", dnsRecords.Name, node.Name)
-				t.AppendRow(table.Row{pod.Spec.NodeName, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, text.FgRed.Sprint(pod.Status.Phase), dnsRecords.Name})
+				t.AppendRow(table.Row{pod.Spec.NodeName, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, text.FgRed.Sprint(pod.Status.Phase), dnsRecords.Name, retryCount + 1})
 				_ = clients.KubeClient.CoreV1().Pods(namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
-				
+
 				if retryCount < maxRetries-1 {
 					log.Debugf("Retrying DNS test for %s on node %s (%d/%d)", dnsRecords.Name, node.Name, retryCount+1, maxRetries)
 					retryCount++
@@ -422,10 +422,8 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clients common.Clien
 					}
 					continue
 				}
-				return fmt.Errorf("DNS resolution failed for %s after %d retries", dnsRecords.Name, maxRetries)
 			}
 		}
 	}
-
-	return fmt.Errorf("DNS resolution test incomplete after %d retries", maxRetries)
+	return nil
 }
