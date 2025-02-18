@@ -30,4 +30,9 @@ jobs:
       run: wget https://raw.githubusercontent.com/David-VTUK/KubePlumber/refs/heads/main/config.yaml
 
     - name: Run Application
-      run:  go run ./cmd/main.go
+      run:  | 
+        go run ./cmd/main.go
+        if [ $? -eq 1 ]; then
+          echo "Application exited with code 1, failing the job."
+          exit 1
+        fi
