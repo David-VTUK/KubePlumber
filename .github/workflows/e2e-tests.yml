@@ -1,6 +1,10 @@
 name: End to End Testing
 
-on: [workflow_dispatch]
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
 
 
 jobs:
