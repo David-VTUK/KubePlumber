@@ -64,3 +64,14 @@ type NetworkInterface struct {
 type NetworkInterfaces struct {
 	Interfaces []NetworkInterface `json:"interfaces"`
 }
+
+type IperfResult struct {
+	End struct {
+		SumSent struct {
+			BitsPerSecond float64 `json:"bits_per_second"`
+		} `json:"sum_sent"`
+		SumReceived struct {
+			BitsPerSecond float64 `json:"bits_per_second"`
+		} `json:"sum_received"`
+	} `json:"end"`
+}
