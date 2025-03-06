@@ -21,7 +21,6 @@ import (
 
 func RunOverlayNetworkSpeedTests(clients common.Clients, restConfig *rest.Config, clusterDomain string, runConfig common.RunConfig) error {
 
-	log.Info("Checking overlay network speed")
 	err := CheckOverlayNetworkSpeed(clients, restConfig, clusterDomain, runConfig.TestNamespace)
 	if err != nil {
 		return fmt.Errorf("error checking overlay network speed: %s", err)
@@ -40,7 +39,7 @@ func CheckOverlayNetworkSpeed(clients common.Clients, restConfig *rest.Config, c
 	t.SetOutputMirror(os.Stdout)
 	t.SetTitle("Overlay Networking Tests")
 	t.Style().Title.Align = text.AlignCenter
-	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Bitrate (Sender) mbit", "Bitrate (Receiver) mbit"})
+	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Bitrate (Sender) megabit/sec", "Bitrate (Receiver) megabit/sec"})
 
 	err := createNicTestPods(clients, namespace, t)
 	if err != nil {
@@ -58,7 +57,6 @@ func createNicTestPods(clients common.Clients, namespace string, t table.Writer)
 	defer cancel()
 
 	// create iperf server
-
 	nodes, err := clients.KubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting nodes: %s", err)
@@ -71,7 +69,7 @@ func createNicTestPods(clients common.Clients, namespace string, t table.Writer)
 				Name:      fmt.Sprintf("kubeplumber-iperf-server-%s", node.Name),
 				Namespace: namespace,
 				Labels: map[string]string{
-					"app": "iperf-server",
+					"kubeplumber": "true",
 				},
 			},
 			Spec: corev1.PodSpec{
@@ -118,7 +116,7 @@ func createNicTestPods(clients common.Clients, namespace string, t table.Writer)
 					GenerateName: fmt.Sprintf("kubeplumber-iperf-client-%s-", node.Name),
 					Namespace:    namespace,
 					Labels: map[string]string{
-						"app": "iperf-client",
+						"kubeplumber": "true",
 					},
 				},
 				Spec: batchv1.JobSpec{
@@ -147,11 +145,10 @@ func createNicTestPods(clients common.Clients, namespace string, t table.Writer)
 			for !jobCompleted {
 				time.Sleep(time.Second * 5)
 
-				log.Info("Getting job" + job.Name)
+				log.Infof("Getting job %s", job.Name)
 				job, err = clients.KubeClient.BatchV1().Jobs(namespace).Get(ctx, job.GetName(), metav1.GetOptions{})
 
 				if err != nil {
-					log.Info("YEET")
 					return err
 				}
 
@@ -192,9 +189,7 @@ func createNicTestPods(clients common.Clients, namespace string, t table.Writer)
 						}
 
 						t.AppendRow(table.Row{node.Name, pod.Name, serverPod.Spec.NodeName, serverPod.Name, fmt.Sprintf("%.2f", result.End.SumSent.BitsPerSecond/1000000), fmt.Sprintf("%.2f", result.End.SumReceived.BitsPerSecond/1000000)})
-
 						jobCompleted = true
-
 						break
 					}
 				}
