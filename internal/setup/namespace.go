@@ -26,6 +26,9 @@ func CreateNamespace(client kubernetes.Clientset, name string) error {
 	_, err = client.CoreV1().Namespaces().Create(context.TODO(), &v1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
+			Labels: map[string]string{
+				"kubeplumber": "true",
+			},
 		},
 	}, metav1.CreateOptions{})
 

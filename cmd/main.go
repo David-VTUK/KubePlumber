@@ -120,4 +120,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	log.Info("Running Overlay Network Speed Tests")
+	err = validate.RunOverlayNetworkSpeedTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain, runConfig)
+	if err != nil {
+		log.Errorf("Tests Aborted due to: %s", err)
+		cleanup.RemoveTestPods(clients, runConfig)
+		os.Exit(1)
+	}
+
+	log.Info("Cleaning up test resources")
+	err = cleanup.RemoveTestPods(clients, runConfig)
+	if err != nil {
+		log.Errorf("Error cleaning up test resources: %s", err)
+	}
+
 }
