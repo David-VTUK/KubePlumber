@@ -2,6 +2,8 @@ package main
 
 import (
 	"flag"
+	"html/template"
+	"net/http"
 	"os"
 
 	"github.com/David-VTUK/KubePlumber/common"
@@ -98,40 +100,66 @@ func main() {
 	}
 
 	log.Info("Running Internal and External DNS Tests")
-	err = validate.RunDNSTests(clients, runConfig, clusterDNSConfig)
+	html, err := validate.RunDNSTests(clients, runConfig, clusterDNSConfig)
 	if err != nil {
 		log.Errorf("Tests Aborted due to: %s", err)
 		cleanup.RemoveTestPods(clients, runConfig)
 		os.Exit(1)
 	}
 
-	log.Info("Running Overlay Network Tests")
-	err = validate.RunOverlayNetworkTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain, runConfig)
-	if err != nil {
-		log.Errorf("Tests Aborted due to: %s", err)
-		cleanup.RemoveTestPods(clients, runConfig)
-		os.Exit(1)
-	}
+	/*
 
-	err = detect.NICAttributes(clients, runConfig)
-	if err != nil {
-		log.Errorf("Tests Aborted due to: %s", err)
-		cleanup.RemoveTestPods(clients, runConfig)
-		os.Exit(1)
-	}
+		log.Info("Running Overlay Network Tests")
+		err = validate.RunOverlayNetworkTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain, runConfig)
+		if err != nil {
+			log.Errorf("Tests Aborted due to: %s", err)
+			cleanup.RemoveTestPods(clients, runConfig)
+			os.Exit(1)
+		}
 
-	log.Info("Running Overlay Network Speed Tests")
-	err = validate.RunOverlayNetworkSpeedTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain, runConfig)
-	if err != nil {
-		log.Errorf("Tests Aborted due to: %s", err)
-		cleanup.RemoveTestPods(clients, runConfig)
-		os.Exit(1)
-	}
+		err = detect.NICAttributes(clients, runConfig)
+		if err != nil {
+			log.Errorf("Tests Aborted due to: %s", err)
+			cleanup.RemoveTestPods(clients, runConfig)
+			os.Exit(1)
+		}
 
-	log.Info("Cleaning up test resources")
-	err = cleanup.RemoveTestPods(clients, runConfig)
-	if err != nil {
-		log.Errorf("Error cleaning up test resources: %s", err)
+		log.Info("Running Overlay Network Speed Tests")
+		err = validate.RunOverlayNetworkSpeedTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain, runConfig)
+		if err != nil {
+			log.Errorf("Tests Aborted due to: %s", err)
+			cleanup.RemoveTestPods(clients, runConfig)
+			os.Exit(1)
+		}
+
+		log.Info("Cleaning up test resources")
+		err = cleanup.RemoveTestPods(clients, runConfig)
+		if err != nil {
+			log.Errorf("Error cleaning up test resources: %s", err)
+		}
+	*/
+
+	log.Info("All tests completed successfully, outputting results to webserver")
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		templ := template.Must(template.ParseFiles("./web/static.html"))
+		// Wrap html as template.HTML to prevent escaping
+		data := struct {
+			HTML template.HTML
+		}{
+			HTML: template.HTML(html),
+		}
+		err := templ.ExecuteTemplate(w, "static.html", data)
+		if err != nil {
+			log.Errorf("Error executing template: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+	})
+
+	log.Info("Starting web server at http://localhost:8080")
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Fatalf("Failed to start web server: %v", err)
 	}
 
 }

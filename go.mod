@@ -1,6 +1,6 @@
 module github.com/David-VTUK/KubePlumber
 
-go 1.23.4
+go 1.24.2
 
 require (
 	github.com/jedib0t/go-pretty/v6 v6.6.5

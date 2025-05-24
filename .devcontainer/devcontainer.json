@@ -1,6 +1,6 @@
 {
 	"name": "go-dev-container",
-    "image": "mcr.microsoft.com/devcontainers/go:1.23-bookworm",
+    "dockerFile": "Dockerfile",
 	// Configure tool-specific properties.
 	"customizations": {
 		// Configure properties specific to VS Code.

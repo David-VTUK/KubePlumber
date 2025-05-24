@@ -19,39 +19,39 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func RunDNSTests(clients common.Clients, runConfig common.RunConfig, clusterDNSConfig common.ClusterDNSConfig) error {
+func RunDNSTests(clients common.Clients, runConfig common.RunConfig, clusterDNSConfig common.ClusterDNSConfig) (string, error) {
 	if clusterDNSConfig.DNSServiceNamespace == "" || clusterDNSConfig.DNSServiceServiceName == "" {
-		return errors.New("DNS service information is missing. DNS detection may have failed")
+		return "", errors.New("DNS service information is missing. DNS detection may have failed")
 	}
 
 	log.Info("Checking active DNS Endpoint")
 	err := checkDNSEndpoints(clients, clusterDNSConfig)
 	if err != nil {
-		return fmt.Errorf("DNS endpoint check failed: %v", err)
+		return "", fmt.Errorf("DNS endpoint check failed: %v", err)
 	}
 
 	// Check the corresponding service endpoints for running DNS pods
 	log.Info("Checking associated endpoint Pods")
 	err = checkDNSPods(clients, clusterDNSConfig)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Check the corresponding Pods are correctly resolving internal DNS requests
 	log.Info("Checking internal DNS resolution, please wait")
-	err = checkInternalDNSResolution(clients, clusterDNSConfig, runConfig)
+	err, html := checkInternalDNSResolution(clients, clusterDNSConfig, runConfig)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Check the corresponding Pods are correctly resolving external DNS requests
 	log.Info("Checking external DNS resolution, please wait")
 	err = checkExternalDNSResolution(clients, clusterDNSConfig, runConfig)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	return nil
+	return html, nil
 }
 
 func checkDNSEndpoints(clients common.Clients, clusterDNSConfig common.ClusterDNSConfig) error {
@@ -107,7 +107,7 @@ func checkDNSPods(clients common.Clients, clusterDNSConfig common.ClusterDNSConf
 	return nil
 }
 
-func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.ClusterDNSConfig, runConfig common.RunConfig) error {
+func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.ClusterDNSConfig, runConfig common.RunConfig) (error, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
 	defer cancel()
 
@@ -122,12 +122,12 @@ func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 
 	data, err := os.ReadFile(runConfig.ConfigFile)
 	if err != nil {
-		return fmt.Errorf("failed to read config file: %v", err)
+		return fmt.Errorf("failed to read config file: %v", err), ""
 	}
 
 	err = yaml.Unmarshal(data, &dnsConfig)
 	if err != nil {
-		return fmt.Errorf("failed to parse config file: %v", err)
+		return fmt.Errorf("failed to parse config file: %v", err), ""
 	}
 
 	// Replace cluster.local with the detected cluster domain in internal DNS records
@@ -142,12 +142,12 @@ func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 		LabelSelector: clusterDNSConfig.DNSLabelSelector,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to list DNS pods: %v", err)
+		return fmt.Errorf("failed to list DNS pods: %v", err), ""
 	}
 
 	nodes, err := clients.KubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to list nodes: %v", err)
+		return fmt.Errorf("failed to list nodes: %v", err), ""
 	}
 
 	// Use a smaller concurrency limit to avoid rate limiting
@@ -188,13 +188,13 @@ func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("internal DNS tests timed out after %d seconds", clients.Timeout)
+		return fmt.Errorf("internal DNS tests timed out after %d seconds", clients.Timeout), ""
 	case <-done:
 		close(errChan)
 		// Check for any errors
 		for err := range errChan {
 			if err != nil {
-				return fmt.Errorf("internal DNS test failed: %v", err)
+				return fmt.Errorf("internal DNS test failed: %v", err), ""
 			}
 		}
 	}
@@ -204,7 +204,9 @@ func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 	})
 	t.Render()
 
-	return nil
+	t.Style().HTML.CSSClass = "table"
+
+	return nil, t.RenderHTML()
 }
 
 func checkExternalDNSResolution(clients common.Clients, clusterDNSConfig common.ClusterDNSConfig, runConfig common.RunConfig) error {
