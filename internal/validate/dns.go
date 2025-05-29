@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/David-VTUK/KubePlumber/common"
-	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"gopkg.in/yaml.v3"
@@ -19,7 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func RunDNSTests(clients common.Clients, runConfig common.RunConfig, clusterDNSConfig common.ClusterDNSConfig) error {
+func RunDNSTests(clients common.Clients, runConfig common.RunConfig, clusterDNSConfig common.ClusterDNSConfig) (common.TestResults, error) {
 	if clusterDNSConfig.DNSServiceNamespace == "" || clusterDNSConfig.DNSServiceServiceName == "" {
 		return errors.New("DNS service information is missing. DNS detection may have failed")
 	}
@@ -108,17 +106,14 @@ func checkDNSPods(clients common.Clients, clusterDNSConfig common.ClusterDNSConf
 }
 
 func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.ClusterDNSConfig, runConfig common.RunConfig) error {
+
+	testResults := common.TestResults{}
+	testResults.Title = "Internal DNS Resolution"
+
 	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
 	defer cancel()
 
 	var dnsConfig common.DNSConfig
-
-	t := table.NewWriter()
-	t.SetStyle(table.StyleColoredDark)
-	t.SetOutputMirror(os.Stdout)
-	t.SetTitle("DNS Networking Tests (Internal)")
-	t.Style().Title.Align = text.AlignCenter
-	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Intra/Inter", "Status", "Domain", "Attempt"})
 
 	data, err := os.ReadFile(runConfig.ConfigFile)
 	if err != nil {
@@ -169,7 +164,7 @@ func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 						errChan <- fmt.Errorf("timeout while testing DNS resolution")
 						return
 					default:
-						if err := createTestDNSPods(node, dnsPod, clients, runConfig.TestNamespace, internalDNS, t); err != nil {
+						if err := createTestDNSPods(node, dnsPod, clients, runConfig.TestNamespace, internalDNS, testResults); err != nil {
 							log.Debugf("Internal DNS test failed for node %s: %v", node.Name, err)
 							errChan <- err
 						}
@@ -199,26 +194,18 @@ func checkInternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 		}
 	}
 
-	t.SortBy([]table.SortBy{
-		{Name: "From (Node)", Mode: table.Asc},
-	})
-	t.Render()
-
 	return nil
 }
 
 func checkExternalDNSResolution(clients common.Clients, clusterDNSConfig common.ClusterDNSConfig, runConfig common.RunConfig) error {
+
+	testResults := common.TestResults{}
+	testResults.Title = "External DNS Resolution"
+
 	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
 	defer cancel()
 
 	var dnsConfig common.DNSConfig
-
-	t := table.NewWriter()
-	t.SetStyle(table.StyleColoredDark)
-	t.SetOutputMirror(os.Stdout)
-	t.SetTitle("DNS Networking Tests (External)")
-	t.Style().Title.Align = text.AlignCenter
-	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Intra/Inter", "Status", "Domain", "Attempt"})
 
 	data, err := os.ReadFile(runConfig.ConfigFile)
 	if err != nil {
@@ -261,7 +248,7 @@ func checkExternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 						errChan <- fmt.Errorf("timeout while testing DNS resolution")
 						return
 					default:
-						if err := createTestDNSPods(node, dnsPod, clients, runConfig.TestNamespace, externalDNS, t); err != nil {
+						if err := createTestDNSPods(node, dnsPod, clients, runConfig.TestNamespace, externalDNS, testResults); err != nil {
 							log.Debugf("External DNS test failed for node %s: %v", node.Name, err)
 							errChan <- err
 						}
@@ -291,14 +278,10 @@ func checkExternalDNSResolution(clients common.Clients, clusterDNSConfig common.
 		}
 	}
 
-	t.SortBy([]table.SortBy{
-		{Name: "From (Node)", Mode: table.Asc},
-	})
-	t.Render()
 	return nil
 }
 
-func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clients common.Clients, namespace string, dnsRecords common.DNSRecord, t table.Writer) error {
+func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clients common.Clients, namespace string, dnsRecords common.DNSRecord, results common.TestResults) error {
 	// Create context with shorter timeout for individual operations
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -375,53 +358,55 @@ func createTestDNSPods(node corev1.Node, dnsPod corev1.Pod, clients common.Clien
 				}
 			}
 
-			// Successful DNS resolution
-			if pod.Status.Phase == "Succeeded" {
-				log.Debugf("DNS resolution succeeded for %s on node %s", dnsRecords.Name, node.Name)
-				t.AppendRow(table.Row{pod.Spec.NodeName, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, pod.Status.Phase, dnsRecords.Name, retryCount + 1})
-				_ = clients.KubeClient.CoreV1().Pods(namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
-				return nil
+			if pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed" {
+				log.Debugf("DNS resolution succeeded for %s on node %s %s", dnsRecords.Name, node.Name, pod.Status.Phase)
+				results.Results = append(results.Results, map[string]any{
+					"From (Node)": pod.Spec.NodeName,
+					"From (Pod)":  pod.Name,
+					"To (Node)":   dnsPod.Spec.NodeName,
+					"To (Pod)":    dnsPod.Name,
+					"Intra/Inter": intraOrInter,
+					"Status":      pod.Status.Phase,
+					"Domain":      dnsRecords.Name,
+					"Attempt":     retryCount + 1,
+				})
+
 			}
 
-			// Unsuccessful DNS resolution
-			if pod.Status.Phase == "Failed" {
-				log.Debugf("DNS resolution failed for %s on node %s", dnsRecords.Name, node.Name)
-				t.AppendRow(table.Row{pod.Spec.NodeName, pod.Name, dnsPod.Spec.NodeName, dnsPod.Name, intraOrInter, text.FgRed.Sprint(pod.Status.Phase), dnsRecords.Name, retryCount + 1})
-				_ = clients.KubeClient.CoreV1().Pods(namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
+			_ = clients.KubeClient.CoreV1().Pods(namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
 
-				if retryCount < maxRetries-1 {
-					log.Debugf("Retrying DNS test for %s on node %s (%d/%d)", dnsRecords.Name, node.Name, retryCount+1, maxRetries)
-					retryCount++
-					// Create a new pod for retry
-					pod, err = clients.KubeClient.CoreV1().Pods(namespace).Create(ctx, &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							GenerateName: "dns-test-",
-							Namespace:    namespace,
-							Labels: map[string]string{
-								"kubeplumber": "true",
-							},
+			if retryCount < maxRetries-1 {
+				log.Debugf("Retrying DNS test for %s on node %s (%d/%d)", dnsRecords.Name, node.Name, retryCount+1, maxRetries)
+				retryCount++
+				// Create a new pod for retry
+				pod, err = clients.KubeClient.CoreV1().Pods(namespace).Create(ctx, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						GenerateName: "dns-test-",
+						Namespace:    namespace,
+						Labels: map[string]string{
+							"kubeplumber": "true",
 						},
-						Spec: corev1.PodSpec{
-							NodeName:      node.Name,
-							RestartPolicy: corev1.RestartPolicyNever,
-							Containers: []corev1.Container{
-								{
-									Name:  "dns-test",
-									Image: "busybox",
-									Command: []string{
-										"nslookup",
-										dnsRecords.Name,
-										fmt.Sprintf("%s:%s", dnsPod.Status.PodIP, strconv.Itoa(int(dnsPod.Spec.Containers[0].Ports[0].ContainerPort))),
-									},
+					},
+					Spec: corev1.PodSpec{
+						NodeName:      node.Name,
+						RestartPolicy: corev1.RestartPolicyNever,
+						Containers: []corev1.Container{
+							{
+								Name:  "dns-test",
+								Image: "busybox",
+								Command: []string{
+									"nslookup",
+									dnsRecords.Name,
+									fmt.Sprintf("%s:%s", dnsPod.Status.PodIP, strconv.Itoa(int(dnsPod.Spec.Containers[0].Ports[0].ContainerPort))),
 								},
 							},
 						},
-					}, metav1.CreateOptions{})
-					if err != nil {
-						return fmt.Errorf("failed to create retry test pod: %v", err)
-					}
-					continue
+					},
+				}, metav1.CreateOptions{})
+				if err != nil {
+					return fmt.Errorf("failed to create retry test pod: %v", err)
 				}
+				continue
 			}
 		}
 	}

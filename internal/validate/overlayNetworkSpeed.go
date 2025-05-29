@@ -5,12 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/David-VTUK/KubePlumber/common"
-	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	batchv1 "k8s.io/api/batch/v1"
@@ -32,25 +29,20 @@ func RunOverlayNetworkSpeedTests(clients common.Clients, restConfig *rest.Config
 
 func CheckOverlayNetworkSpeed(clients common.Clients, restConfig *rest.Config, clusterDomain string, namespace string) error {
 
+	testResults := common.TestResults{}
+	testResults.Title = "Overlay Network Tests - Bandwidth"
+
 	log.Info("Checking overlay network speed")
 
-	t := table.NewWriter()
-	t.SetStyle(table.StyleColoredDark)
-	t.SetOutputMirror(os.Stdout)
-	t.SetTitle("Overlay Networking Tests")
-	t.Style().Title.Align = text.AlignCenter
-	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Bitrate (Sender) megabit/sec", "Bitrate (Receiver) megabit/sec"})
-
-	err := createNicTestPods(clients, namespace, t)
+	err := createNicTestPods(clients, namespace, testResults)
 	if err != nil {
 		return fmt.Errorf("error creating iperf pods: %s", err)
 	}
 
-	t.Render()
 	return nil
 }
 
-func createNicTestPods(clients common.Clients, namespace string, t table.Writer) error {
+func createNicTestPods(clients common.Clients, namespace string, results common.TestResults) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	var serverPods []*corev1.Pod
 
@@ -188,7 +180,15 @@ func createNicTestPods(clients common.Clients, namespace string, t table.Writer)
 							return fmt.Errorf("error unmarshalling iperf result: %s", err)
 						}
 
-						t.AppendRow(table.Row{node.Name, pod.Name, serverPod.Spec.NodeName, serverPod.Name, fmt.Sprintf("%.2f", result.End.SumSent.BitsPerSecond/1000000), fmt.Sprintf("%.2f", result.End.SumReceived.BitsPerSecond/1000000)})
+						results.Results = append(results.Results, map[string]any{
+							"From (Node)":    node.Name,
+							"From (Pod)":     pod.Name,
+							"To (Node)":      serverPod.Spec.NodeName,
+							"To (Pod)":       serverPod.Name,
+							"Send (Mbps)":    fmt.Sprintf("%.2f", result.End.SumSent.BitsPerSecond/1000000),
+							"Receive (Mbps)": fmt.Sprintf("%.2f", result.End.SumReceived.BitsPerSecond/1000000),
+						})
+
 						jobCompleted = true
 						break
 					}

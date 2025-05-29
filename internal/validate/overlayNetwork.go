@@ -3,13 +3,10 @@ package validate
 import (
 	"bytes"
 	"context"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/David-VTUK/KubePlumber/common"
-	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -33,15 +30,11 @@ func RunOverlayNetworkTests(clients common.Clients, restConfig *rest.Config, clu
 
 func CheckOverlayNetwork(clients common.Clients, restConfig *rest.Config, clusterDomain string, namespace string) error {
 
+	testResults := common.TestResults{}
+	testResults.Title = "Overlay Network Tests - Connectivity"
+
 	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
 	defer cancel()
-
-	t := table.NewWriter()
-	t.SetStyle(table.StyleColoredDark)
-	t.SetOutputMirror(os.Stdout)
-	t.SetTitle("Overlay Networking Tests")
-	t.Style().Title.Align = text.AlignCenter
-	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Status", "Protocol"})
 
 	daemonSet, err := CreateDaemonSet(clients, namespace)
 
@@ -64,7 +57,7 @@ func CheckOverlayNetwork(clients common.Clients, restConfig *rest.Config, cluste
 		for _, targetPod := range podList.Items {
 			wg.Add(1)
 
-			go func(clients common.Clients, restConfig *rest.Config, pod corev1.Pod, targetPod corev1.Pod, t table.Writer) {
+			go func(clients common.Clients, restConfig *rest.Config, pod corev1.Pod, targetPod corev1.Pod, t common.TestResults) {
 
 				defer wg.Done()
 				sem <- struct{}{}        // acquire semaphore
@@ -74,16 +67,12 @@ func CheckOverlayNetwork(clients common.Clients, restConfig *rest.Config, cluste
 					_ = RunCurlCommand(clients, restConfig, pod, targetPod, t)
 				}
 
-			}(clients, restConfig, pod, targetPod, t)
+			}(clients, restConfig, pod, targetPod, testResults)
 
 		}
 	}
 
 	wg.Wait()
-	t.SortBy([]table.SortBy{
-		{Name: "From (Node)", Mode: table.Asc},
-	})
-	t.Render()
 
 	// Delete DaemonSet
 	err = clients.KubeClient.AppsV1().DaemonSets(namespace).Delete(ctx, daemonSet.Name, metav1.DeleteOptions{})
@@ -153,7 +142,7 @@ func CreateDaemonSet(clients common.Clients, namespace string) (appsv1.DaemonSet
 	return *daemonSet, nil
 }
 
-func RunCurlCommand(clients common.Clients, restConfig *rest.Config, sourcePod corev1.Pod, targetPod corev1.Pod, t table.Writer) error {
+func RunCurlCommand(clients common.Clients, restConfig *rest.Config, sourcePod corev1.Pod, targetPod corev1.Pod, results common.TestResults) error {
 
 	command := []string{"curl", "-o", "/dev/null", "-s", "-w", "%{http_code}", targetPod.Status.PodIP}
 
@@ -198,9 +187,24 @@ func RunCurlCommand(clients common.Clients, restConfig *rest.Config, sourcePod c
 	}
 
 	if stdout.String() == "200" {
-		t.AppendRow(table.Row{sourcePod.Spec.NodeName, sourcePod.Name, targetPod.Spec.NodeName, targetPod.Name, "Success", "TCP 80"})
+		results.Results = append(results.Results, map[string]any{
+			"Source Node": sourcePod.Spec.NodeName,
+			"Source Pod":  sourcePod.Name,
+			"Target Node": targetPod.Spec.NodeName,
+			"Target Pod":  targetPod.Name,
+			"Status":      "Success",
+			"Protocol":    "TCP 80",
+		})
+
 	} else {
-		t.AppendRow(table.Row{sourcePod.Spec.NodeName, sourcePod.Name, targetPod.Spec.NodeName, targetPod.Name, "Failed", "TCP 80"})
+		results.Results = append(results.Results, map[string]any{
+			"Source Node": sourcePod.Spec.NodeName,
+			"Source Pod":  sourcePod.Name,
+			"Target Node": targetPod.Spec.NodeName,
+			"Target Pod":  targetPod.Name,
+			"Status":      "Failed",
+			"Protocol":    "TCP 80",
+		})
 	}
 
 	return nil

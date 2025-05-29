@@ -5,13 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/David-VTUK/KubePlumber/common"
-	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,12 +17,8 @@ import (
 func NICAttributes(clients common.Clients, runConfig common.RunConfig) error {
 	log.Info("Checking NIC Attributes")
 
-	t := table.NewWriter()
-	t.SetStyle(table.StyleColoredDark)
-	t.SetOutputMirror(os.Stdout)
-	t.SetTitle("NIC Information")
-	t.Style().Title.Align = text.AlignCenter
-	t.AppendHeader(table.Row{"Node", "Interface", "MAC", "MTU", "Up", "Broadcast", "Loopback", "PointToPoint", "Multicast"})
+	testResults := common.TestResults{}
+	testResults.Title = "NIC Information"
 
 	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
 	defer cancel()
@@ -47,7 +40,7 @@ func NICAttributes(clients common.Clients, runConfig common.RunConfig) error {
 			sem <- struct{}{}        // acquire semaphore
 			defer func() { <-sem }() // release semaphore
 
-			err := createNicTestPods(node, clients, runConfig, t)
+			err := createNicTestPods(node, clients, runConfig, testResults)
 			if err != nil {
 				return err
 			}
@@ -56,15 +49,11 @@ func NICAttributes(clients common.Clients, runConfig common.RunConfig) error {
 	}
 
 	wg.Wait()
-	t.SortBy([]table.SortBy{
-		{Name: "Node", Mode: table.Asc},
-	})
-	t.Render()
 	return nil
 
 }
 
-func createNicTestPods(node corev1.Node, clients common.Clients, runConfig common.RunConfig, t table.Writer) error {
+func createNicTestPods(node corev1.Node, clients common.Clients, runConfig common.RunConfig, results common.TestResults) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
 	defer cancel()
@@ -126,8 +115,19 @@ func createNicTestPods(node corev1.Node, clients common.Clients, runConfig commo
 			}
 
 			for _, iface := range interfaces.Interfaces {
-				t.AppendRow(table.Row{node.Name, iface.Name, iface.MAC, iface.MTU, iface.Up, iface.Broadcast, iface.Loopback, iface.PointToPoint, iface.Multicast})
+				results.Results = append(results.Results, map[string]any{
+					"Node":         node.Name,
+					"Iface":        iface.Name,
+					"MAC":          iface.MAC,
+					"MTU":          iface.MTU,
+					"Up":           iface.Up,
+					"Broadcast":    iface.Broadcast,
+					"Loopback":     iface.Loopback,
+					"PointToPoint": iface.PointToPoint,
+					"Multicast":    iface.Multicast,
+				})
 			}
+
 		}
 
 		err = clients.KubeClient.CoreV1().Pods(runConfig.TestNamespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
