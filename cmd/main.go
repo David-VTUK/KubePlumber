@@ -22,6 +22,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// version is set at build time via -ldflags "-X main.version=<tag>".
+var version = "dev"
+
 // openBrowser launches the user's default browser after a short delay to allow
 // the HTTP server time to begin listening.
 func openBrowser(url string) {
