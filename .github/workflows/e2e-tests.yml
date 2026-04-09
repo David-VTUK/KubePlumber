@@ -11,7 +11,7 @@ jobs:
   e2e-tests:
     runs-on: ubuntu-latest
     steps:  
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v2
@@ -23,7 +23,7 @@ jobs:
       run: k3d cluster create test-cluster -a 3
 
     - name: Set up Go
-      uses: actions/setup-go@v3
+      uses: actions/setup-go@v6
       with:
           go-version: 1.23.4
 
