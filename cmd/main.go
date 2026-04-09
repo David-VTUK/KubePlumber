@@ -53,7 +53,13 @@ func main() {
 	flag.StringVar(&runConfig.Kubeconfig, "kubeconfig", "", "(required) absolute path to the kubeconfig file")
 	flag.StringVar(&runConfig.TestNamespace, "namespace", "default", "Namespace to run tests in")
 	flag.IntVar(&runConfig.WebPort, "webport", 8080, "Port for the web results UI")
+	flag.BoolVar(&runConfig.NoWait, "no-wait", false, "Exit immediately after tests complete instead of keeping the web server running")
 	flag.Parse()
+
+	// GitHub Actions and most CI systems set CI=true; treat that the same as --no-wait.
+	if os.Getenv("CI") == "true" {
+		runConfig.NoWait = true
+	}
 
 	if runConfig.Kubeconfig == "" {
 		log.Info("Kubeconfig not provided, attempting to use KUBECONFIG environment variable")
@@ -130,10 +136,12 @@ func main() {
 		"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Bitrate (Sender) megabit/sec", "Bitrate (Receiver) megabit/sec",
 	})
 
-	// Start the web UI server in the background and open the browser.
+	// Start the web UI server in the background.
 	ws := webserver.New(results, runConfig.WebPort)
 	ws.Start()
-	openBrowser(fmt.Sprintf("http://localhost:%d", runConfig.WebPort))
+	if !runConfig.NoWait {
+		openBrowser(fmt.Sprintf("http://localhost:%d", runConfig.WebPort))
+	}
 
 	// Intercept SIGINT/SIGTERM so that Ctrl+C always triggers a clean removal
 	// of test resources regardless of which stage the run is at.
@@ -203,6 +211,12 @@ func main() {
 	}
 
 	results.SetAllComplete()
+
+	if runConfig.NoWait {
+		log.Info("All tests complete — exiting")
+		return
+	}
+
 	log.Infof("All tests complete — results available at http://localhost:%d (press Ctrl+C to exit)", runConfig.WebPort)
 
 	// Block until the user presses Ctrl+C. The signal goroutine above handles

@@ -34,6 +34,7 @@ type RunConfig struct {
 	ConfigFile    string
 	TestNamespace string
 	WebPort       int
+	NoWait        bool
 }
 
 type ClusterDNSConfig struct {
