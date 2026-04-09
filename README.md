@@ -25,7 +25,7 @@ An example [config.yaml](https://github.com/David-VTUK/KubePlumber/blob/main/con
   --kubeconfig string
         (required) absolute path to the kubeconfig file
   --loglevel string
-        Log level (info, info, warn, error, fatal, panic) (default "info")
+        Log level (info, warn, error, fatal, panic) (default "info")
   --namespace string
         Namespace to run tests in (default "default")
 ```
