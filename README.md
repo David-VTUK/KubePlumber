@@ -5,30 +5,27 @@
 * Internal DNS Resolution (Inter + Intra node)
 * Internal traffic testing (Inter and Intra node)
 * External DNS resolution
-
-Future additions:
-
-* MTU Validation between nodes
-* Host NIC configuration
+* Bandwidth Testing between nodes
 
 ![img](./images/example1.png)
 ![img](./images/example2.png)
+![img](./images/example3.png)
 
 ## Example Usage
 
-`kubeplumber -kubeconfig ~/.kube/config -config config.yaml`
+`kubeplumber --kubeconfig ~/.kube/config   --config config.yaml   --namespace default   --webport 8080`
 
 An example [config.yaml](https://github.com/David-VTUK/KubePlumber/blob/main/config.yaml)
 
 ### Options
 
 ```bash
-  -config string
+  --config string
         Path to the config file (default "config.yaml")
-  -kubeconfig string
+  --kubeconfig string
         (required) absolute path to the kubeconfig file
-  -loglevel string
-        Log level (debug, info, warn, error, fatal, panic) (default "debug")
-  -namespace string
+  --loglevel string
+        Log level (info, info, warn, error, fatal, panic) (default "info")
+  --namespace string
         Namespace to run tests in (default "default")
 ```

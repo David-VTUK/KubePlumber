@@ -5,12 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/David-VTUK/KubePlumber/common"
-	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	batchv1 "k8s.io/api/batch/v1"
@@ -19,50 +16,42 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-func RunOverlayNetworkSpeedTests(clients common.Clients, restConfig *rest.Config, clusterDomain string, runConfig common.RunConfig) error {
+func RunOverlayNetworkSpeedTests(clients common.Clients, restConfig *rest.Config, clusterDomain string, runConfig common.RunConfig, results *common.ResultsStore) error {
 
-	err := CheckOverlayNetworkSpeed(clients, restConfig, clusterDomain, runConfig.TestNamespace)
+	err := CheckOverlayNetworkSpeed(clients, restConfig, clusterDomain, runConfig.TestNamespace, results)
 	if err != nil {
 		return fmt.Errorf("error checking overlay network speed: %s", err)
 	}
 
 	return nil
-
 }
 
-func CheckOverlayNetworkSpeed(clients common.Clients, restConfig *rest.Config, clusterDomain string, namespace string) error {
+func CheckOverlayNetworkSpeed(clients common.Clients, restConfig *rest.Config, clusterDomain string, namespace string, results *common.ResultsStore) error {
 
 	log.Info("Checking overlay network speed")
 
-	t := table.NewWriter()
-	t.SetStyle(table.StyleColoredDark)
-	t.SetOutputMirror(os.Stdout)
-	t.SetTitle("Overlay Networking Tests")
-	t.Style().Title.Align = text.AlignCenter
-	t.AppendHeader(table.Row{"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Bitrate (Sender) megabit/sec", "Bitrate (Receiver) megabit/sec"})
+	results.MarkRunning(common.SectionSpeedTest)
 
-	err := createNicTestPods(clients, namespace, t)
+	err := createSpeedTestPods(clients, namespace, results)
 	if err != nil {
 		return fmt.Errorf("error creating iperf pods: %s", err)
 	}
 
-	t.Render()
+	results.MarkComplete(common.SectionSpeedTest)
 	return nil
 }
 
-func createNicTestPods(clients common.Clients, namespace string, t table.Writer) error {
+func createSpeedTestPods(clients common.Clients, namespace string, results *common.ResultsStore) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	var serverPods []*corev1.Pod
 
 	defer cancel()
 
-	// create iperf server
 	nodes, err := clients.KubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting nodes: %s", err)
 	}
 
-	// create iperf servers
 	for _, node := range nodes.Items {
 		pod, err := clients.KubeClient.CoreV1().Pods(namespace).Create(ctx, &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
@@ -101,10 +90,8 @@ func createNicTestPods(clients common.Clients, namespace string, t table.Writer)
 				break
 			}
 		}
-
 	}
 
-	// create iperf clients as Kubernetes Jobs
 	for _, node := range nodes.Items {
 		for _, serverPod := range serverPods {
 			if node.Name == serverPod.Spec.NodeName {
@@ -188,15 +175,18 @@ func createNicTestPods(clients common.Clients, namespace string, t table.Writer)
 							return fmt.Errorf("error unmarshalling iperf result: %s", err)
 						}
 
-						t.AppendRow(table.Row{node.Name, pod.Name, serverPod.Spec.NodeName, serverPod.Name, fmt.Sprintf("%.2f", result.End.SumSent.BitsPerSecond/1000000), fmt.Sprintf("%.2f", result.End.SumReceived.BitsPerSecond/1000000)})
+						sentMbps := fmt.Sprintf("%.2f", result.End.SumSent.BitsPerSecond/1000000)
+						recvMbps := fmt.Sprintf("%.2f", result.End.SumReceived.BitsPerSecond/1000000)
+
+						results.AddRow(common.SectionSpeedTest, common.ResultRow{
+							node.Name, pod.Name, serverPod.Spec.NodeName, serverPod.Name, sentMbps, recvMbps,
+						})
 						jobCompleted = true
 						break
 					}
 				}
-
 			}
 		}
-
 	}
 
 	return nil

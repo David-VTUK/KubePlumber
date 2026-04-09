@@ -5,49 +5,40 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"os"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/David-VTUK/KubePlumber/common"
-	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func NICAttributes(clients common.Clients, runConfig common.RunConfig) error {
+func NICAttributes(clients common.Clients, runConfig common.RunConfig, results *common.ResultsStore) error {
 	log.Info("Checking NIC Attributes")
-
-	t := table.NewWriter()
-	t.SetStyle(table.StyleColoredDark)
-	t.SetOutputMirror(os.Stdout)
-	t.SetTitle("NIC Information")
-	t.Style().Title.Align = text.AlignCenter
-	t.AppendHeader(table.Row{"Node", "Interface", "MAC", "MTU", "Up", "Broadcast", "Loopback", "PointToPoint", "Multicast"})
 
 	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
 	defer cancel()
 
-	// Get Nodes
 	nodes, err := clients.KubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
 
+	results.MarkRunning(common.SectionNIC)
+
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, len(nodes.Items))
 
 	for _, node := range nodes.Items {
-
 		wg.Add(1)
 		go func(node corev1.Node) error {
 			defer wg.Done()
-			sem <- struct{}{}        // acquire semaphore
-			defer func() { <-sem }() // release semaphore
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-			err := createNicTestPods(node, clients, runConfig, t)
+			err := createNicTestPods(node, clients, runConfig, results)
 			if err != nil {
 				return err
 			}
@@ -56,15 +47,11 @@ func NICAttributes(clients common.Clients, runConfig common.RunConfig) error {
 	}
 
 	wg.Wait()
-	t.SortBy([]table.SortBy{
-		{Name: "Node", Mode: table.Asc},
-	})
-	t.Render()
+	results.MarkComplete(common.SectionNIC)
 	return nil
-
 }
 
-func createNicTestPods(node corev1.Node, clients common.Clients, runConfig common.RunConfig, t table.Writer) error {
+func createNicTestPods(node corev1.Node, clients common.Clients, runConfig common.RunConfig, results *common.ResultsStore) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), clients.Timeout*time.Second)
 	defer cancel()
@@ -126,7 +113,17 @@ func createNicTestPods(node corev1.Node, clients common.Clients, runConfig commo
 			}
 
 			for _, iface := range interfaces.Interfaces {
-				t.AppendRow(table.Row{node.Name, iface.Name, iface.MAC, iface.MTU, iface.Up, iface.Broadcast, iface.Loopback, iface.PointToPoint, iface.Multicast})
+				results.AddRow(common.SectionNIC, common.ResultRow{
+					node.Name,
+					iface.Name,
+					iface.MAC,
+					strconv.Itoa(iface.MTU),
+					strconv.FormatBool(iface.Up),
+					strconv.FormatBool(iface.Broadcast),
+					strconv.FormatBool(iface.Loopback),
+					strconv.FormatBool(iface.PointToPoint),
+					strconv.FormatBool(iface.Multicast),
+				})
 			}
 		}
 

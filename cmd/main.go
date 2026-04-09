@@ -2,26 +2,57 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
+	"os/exec"
+	"os/signal"
+	"runtime"
+	"syscall"
+	"time"
 
 	"github.com/David-VTUK/KubePlumber/common"
 	"github.com/David-VTUK/KubePlumber/internal/cleanup"
 	"github.com/David-VTUK/KubePlumber/internal/detect"
 	"github.com/David-VTUK/KubePlumber/internal/setup"
 	"github.com/David-VTUK/KubePlumber/internal/validate"
+	"github.com/David-VTUK/KubePlumber/internal/webserver"
 	log "github.com/sirupsen/logrus"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// openBrowser launches the user's default browser after a short delay to allow
+// the HTTP server time to begin listening.
+func openBrowser(url string) {
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "linux":
+			cmd = exec.Command("xdg-open", url)
+		case "darwin":
+			cmd = exec.Command("open", url)
+		case "windows":
+			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		default:
+			log.Debugf("Unsupported OS for auto browser open: %s", runtime.GOOS)
+			return
+		}
+		if err := cmd.Start(); err != nil {
+			log.Debugf("Could not open browser: %v", err)
+		}
+	}()
+}
+
 func main() {
 
 	runConfig := common.RunConfig{}
-	flag.StringVar(&runConfig.LogLevel, "loglevel", "debug", "Log level (debug, info, warn, error, fatal, panic)")
+	flag.StringVar(&runConfig.LogLevel, "loglevel", "info", "Log level (debug, info, warn, error, fatal, panic)")
 	flag.StringVar(&runConfig.ConfigFile, "config", "config.yaml", "Path to the config file")
 	flag.StringVar(&runConfig.Kubeconfig, "kubeconfig", "", "(required) absolute path to the kubeconfig file")
 	flag.StringVar(&runConfig.TestNamespace, "namespace", "default", "Namespace to run tests in")
+	flag.IntVar(&runConfig.WebPort, "webport", 8080, "Port for the web results UI")
 	flag.Parse()
 
 	if runConfig.Kubeconfig == "" {
@@ -80,6 +111,43 @@ func main() {
 		Timeout:       common.K8sClientTimeout,
 	}
 
+	// Initialise the results store and register all test sections up front so
+	// the web UI can show the full section list immediately on load.
+	results := common.NewResultsStore()
+	results.AddSection(common.SectionDNSInternal, []string{
+		"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Intra/Inter", "Status", "Domain", "Attempt",
+	})
+	results.AddSection(common.SectionDNSExternal, []string{
+		"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Intra/Inter", "Status", "Domain", "Attempt",
+	})
+	results.AddSection(common.SectionOverlay, []string{
+		"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Status", "Protocol",
+	})
+	results.AddSection(common.SectionNIC, []string{
+		"Node", "Interface", "MAC", "MTU", "Up", "Broadcast", "Loopback", "PointToPoint", "Multicast",
+	})
+	results.AddSection(common.SectionSpeedTest, []string{
+		"From (Node)", "From (Pod)", "To (Node)", "To (Pod)", "Bitrate (Sender) megabit/sec", "Bitrate (Receiver) megabit/sec",
+	})
+
+	// Start the web UI server in the background and open the browser.
+	ws := webserver.New(results, runConfig.WebPort)
+	ws.Start()
+	openBrowser(fmt.Sprintf("http://localhost:%d", runConfig.WebPort))
+
+	// Intercept SIGINT/SIGTERM so that Ctrl+C always triggers a clean removal
+	// of test resources regardless of which stage the run is at.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		log.Infof("Received signal %s — cleaning up test resources before exit", sig)
+		if err := cleanup.RemoveTestPods(clients, runConfig); err != nil {
+			log.Errorf("Error during cleanup: %v", err)
+		}
+		os.Exit(130)
+	}()
+
 	// Create namespace if it does not exist
 	err = setup.CreateNamespace(*clients.KubeClient, runConfig.TestNamespace)
 
@@ -98,7 +166,7 @@ func main() {
 	}
 
 	log.Info("Running Internal and External DNS Tests")
-	err = validate.RunDNSTests(clients, runConfig, clusterDNSConfig)
+	err = validate.RunDNSTests(clients, runConfig, clusterDNSConfig, results)
 	if err != nil {
 		log.Errorf("Tests Aborted due to: %s", err)
 		cleanup.RemoveTestPods(clients, runConfig)
@@ -106,14 +174,14 @@ func main() {
 	}
 
 	log.Info("Running Overlay Network Tests")
-	err = validate.RunOverlayNetworkTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain, runConfig)
+	err = validate.RunOverlayNetworkTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain, runConfig, results)
 	if err != nil {
 		log.Errorf("Tests Aborted due to: %s", err)
 		cleanup.RemoveTestPods(clients, runConfig)
 		os.Exit(1)
 	}
 
-	err = detect.NICAttributes(clients, runConfig)
+	err = detect.NICAttributes(clients, runConfig, results)
 	if err != nil {
 		log.Errorf("Tests Aborted due to: %s", err)
 		cleanup.RemoveTestPods(clients, runConfig)
@@ -121,7 +189,7 @@ func main() {
 	}
 
 	log.Info("Running Overlay Network Speed Tests")
-	err = validate.RunOverlayNetworkSpeedTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain, runConfig)
+	err = validate.RunOverlayNetworkSpeedTests(clients, restConfig, clusterDNSConfig.DNSServiceDomain, runConfig, results)
 	if err != nil {
 		log.Errorf("Tests Aborted due to: %s", err)
 		cleanup.RemoveTestPods(clients, runConfig)
@@ -134,4 +202,11 @@ func main() {
 		log.Errorf("Error cleaning up test resources: %s", err)
 	}
 
+	results.SetAllComplete()
+	log.Infof("All tests complete — results available at http://localhost:%d (press Ctrl+C to exit)", runConfig.WebPort)
+
+	// Block until the user presses Ctrl+C. The signal goroutine above handles
+	// cleanup and exits, so we just wait here.
+	<-sigCh
+	log.Info("Shutting down")
 }
