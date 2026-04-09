@@ -7,6 +7,10 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.2.0)'
+        required: true
 
 permissions:
   contents: write
@@ -50,7 +54,7 @@ jobs:
           GOARM: ${{ matrix.goarm }}
           CGO_ENABLED: 0
         run: |
-          go build -trimpath -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+          go build -trimpath -ldflags="-s -w -X main.version=${{ inputs.tag || github.ref_name }}" \
             -o ${{ matrix.asset_name }} ./cmd/main.go
 
       - name: Upload artifact
@@ -73,6 +77,7 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }}
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: ${{ inputs.tag || github.ref_name }}
           generate_release_notes: true
           files: kubeplumber-*
